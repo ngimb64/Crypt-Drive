@@ -10,7 +10,7 @@
 - After Prereqs are completed
 - Create a gmail account or login to existing account
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
-- Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settings.yaml file where specified .. which saves credentials after the first use of api
+- Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml file where specified .. which saves credentials after the first use of api. Then rename the file to settings.yaml.
 
 ## Purpose
 Crypt drive is designed manage encrypted uploads to cloud storage (Google Drive), store keys in a password protected database, while giving the user to share the unlock key & nonce via a temporary password protected encryption through emails & a password provided via sms text message. After unlock components are recieved the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
