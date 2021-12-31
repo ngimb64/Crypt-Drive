@@ -18,9 +18,9 @@ Crypt drive is designed manage encrypted uploads to cloud storage (Google Drive)
 Local storage database will be added in the near future.
 
 ### Encryption scheme:
-Database Unlock & Sharing - Authenticated AES 256 counter mode CBC with 104 bit nonce & CBC-MAC (CCM) integrity check
-Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
-Data encrypt / decrypt - ChaCha20 256 with 128 bit nonce
+- Database Unlock & Sharing - Authenticated AES 256 counter mode CBC with 104 bit nonce & CBC-MAC (CCM) integrity check
+- Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
+- Data encrypt / decrypt - ChaCha20 256 with 128 bit nonce
 
 ## How to use
 - Enter password to create key/database set .. if they aleady exist the db encryption key is unlocked
