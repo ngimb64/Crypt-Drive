@@ -1,0 +1,14 @@
+# Folders to ignore
+Dbs/
+DecryptDock/
+Import/
+Keys/
+Resource_Files/
+UploadDock/
+Modules/__pycache__/
+
+# Files to ignore
+cryptLog.log
+credentials.json
+settings.yaml
+To-Do.txt
