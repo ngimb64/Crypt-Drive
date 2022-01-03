@@ -2,18 +2,16 @@
 
 ## Prereqs
 - Python 3.9
-- Cofirm all modules are installed .. attempt importing each module
-- If a module import fails look up the package name & install via pip in command prompt
-- If a installed module still fails confirm the correct package is installed .. some have very similar names
 
 ## Installation
 - After Prereqs are completed
 - Create a gmail account or login to existing account
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
 - Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml file where specified .. which saves credentials after the first use of api. Then rename the file to settings.yaml.
+- Run setup.py to ensure external packages are installed
 
 ## Purpose
-Crypt drive is designed manage encrypted uploads to cloud storage (Google Drive), store keys in a password protected database, while giving the user to share the unlock key & nonce via a temporary password protected encryption through emails & a password provided via sms text message. After unlock components are recieved the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
+Crypt drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password protected database, while giving the user to share the unlock key & nonce via a temporary password protected encryption through emails & a password provided via sms text message. After unlock components are recieved the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
 
 Local storage database will be added in the near future.
 
