@@ -273,11 +273,14 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     files = ((key_path, nonce_path), (aesccm_path, key_nonce_path), (None, None))
 
     count = 0 
+    # Iterate of different message destinations #
     for receiver in receivers:
+        # Format and send emails/text #
         msg = msg_format(send_email, receiver, body[count], files[count])
         msg_send(send_email, receiver, email_pass, msg)        
         count += 1
 
+    # Delete sent items
     [ os.remove(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path) ]
 
     os.chdir('.\\..')
@@ -345,8 +348,11 @@ def upload(db, cmd, password, local_path):
     # encrypt data, then upload to destination path #
     for dirpath, dirnames, filenames in os.walk(local_path):
         system_cmd(cmd, None, None, 2)
+        
         print(f'\nUpload path: {dirpath}\n')
         extPath = re.search(reg_extPath, dirpath)
+
+        # Upload folder to Drive #
         for dirname in dirnames:
             print(f'Directory name: {dirname}')
             if extPath == None:
@@ -363,6 +369,7 @@ def upload(db, cmd, password, local_path):
             crypt = encryptor.update(file_data)
             file_handler(('.\\UploadDock\\'+ file), 'wb', password, operation='write', data=crypt)
 
+            # Upload file to Drive #
             if extPath ==  None:
                 file_upload(drive, None, '.\\UploadDock', file, http)
             else:

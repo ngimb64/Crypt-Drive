@@ -263,9 +263,11 @@ def start_check(dbs, password):
                 failures.append(item)
                 continue
 
+        # If item is file #
         if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
         '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
             re_item = re.search(r'(?<=\.)[a-zA-Z\_\\]+(?=\.)', item)
+        # If item if folder #
         else:
             re_item = re.search(r'(?<=\.)[a-zA-Z\_\\]+(?=$)', item)
 
@@ -288,9 +290,11 @@ def start_check(dbs, password):
         except:
             print_err(f'\n* {item} not found in recycling bin .. checking user storage *\n', 0.01)
 
+            # If file is file #
             if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
             '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
                 re_item = re.search(r'(?<=[a-zA-Z]\\)[a-zA-Z\_\\]+(?=\.)', item)
+            # If file is folder #
             else:
                 re_item = re.search(r'(?<=\.\\)[a-zA-Z\_\\]+(?=$)', item)
 
@@ -306,8 +310,11 @@ def start_check(dbs, password):
 
         sleep(2)
 
+    # If a component could not be recovered #
     if failures:
+        # For component in list of failures #
         for fail in failures:
+            # If component is independent of key set #
             if fail in ('.\\DecryptDock', '.\\Import', \
             '.\\UploadDock', '.\\Dbs\\storage.db' ):
                 # If fail item is folder #
