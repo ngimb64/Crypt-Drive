@@ -1,4 +1,4 @@
-from filelock import FileLock
+from filelock import FileLock, Timeout
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from cryptography.fernet import Fernet
 from base64 import b64encode
@@ -10,66 +10,105 @@ from time import sleep
 from sys import stderr
 from threading import BoundedSemaphore
 from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
-import shlex, logging, re, os, sqlite3, winshell, smtplib
+import shlex, logging, re, os, sqlite3, smtplib, keyring, shutil
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
                     ProgrammingError, OperationalError, NotSupportedError
 import Modules.Globals as Globals
 
-# Check recycling bin for file #
-def bin_check(filename):
-    # Retrieve recycling bin contents as list #
-    rBin = list(winshell.recycle_bin())
-    # Iterate through list #
-    for file in rBin:
-        # If either file type is matched .. 
-        # restore from recycling bin #
-        if file == filename + '.txt':
-            winshell.undelete('.\\Keys\\' + file)
-            return True
-        elif file == filename + '.db':
-            winshell.undelete('.\\Dbs\\' + file)
-            return True
-        else:
-            pass
-
-    return False
+# # Function Index #
+# -------------------
+# - file_handler:   handlers file read / write operations
+# - hd_crawl:       checks user file system for missing component 
+# - key_handler:    deletes existing keys & dbs, calls function to make new components
+# - logger:         encrypted logging system
+# - make_keys:      creates/encrypts keys and dbs, stores hash in application keyring
+# - msg_format:     formats email message headers, data, and attachments
+# - msg_send:       facilitates sending email via TLS connection
+# - print_err:      prints error message the duration of the integer passed in
+# - query_handler:  MySQL database query handling function for creating, populating, and retrieving data from dbs
+# - system_cmd:     executes system shell command
 
 # File operation handler #
 def file_handler(filename, op, password, operation=None, data=None):
-    try:
-        # Set file lock #
-        with FileLock(filename + '.lock'):
-            # Open file #
-            with open(filename, op) as file:
-                # If no operation was specified #
-                if operation == None:
-                    logger('File IO Error: File opertion not specified\n', password, \
-                            operation='write', handler='error')
-                    return
-                # If read operation was specified #
-                elif operation == 'read':
-                    return file.read()
-                # If write operatiob was specified #
-                elif operation == 'write':
-                    # If no data is present #
-                    if data == None:
-                        logger('File IO Error: Empty file buffered detected\n', password, \
+    count = 0
+
+    while True:
+        try:
+            # Set file lock #
+            with FileLock(filename + '.lock', timeout=3):
+                # Open file #
+                with open(filename, op) as file:
+                    # If no operation was specified #
+                    if operation == None:
+                        logger('File IO Error: File opertion not specified\n', password, \
                                 operation='write', handler='error')
                         return
+                    # If read operation was specified #
+                    elif operation == 'read':
+                        return file.read()
+                    # If write operatiob was specified #
+                    elif operation == 'write':
+                        # If no data is present #
+                        if data == None:
+                            logger('File IO Error: Empty file buffered detected\n', password, \
+                                    operation='write', handler='error')
+                            return
 
-                    return file.write(data)
-                # If improper operation specified #
-                else:
-                    logger('File IO Error: Improper file opertion attempted\n', password, \
-                            operation='write', handler='error')
+                        return file.write(data)
+                    # If improper operation specified #
+                    else:
+                        logger('File IO Error: Improper file opertion attempted\n', password, \
+                                operation='write', handler='error')
+            break
 
-    # File error handling #
-    except (IOError, FileNotFoundError, Exception) as err:
-        logger(f'File IO Error: {err}\n', password, \
-                operation='write', handler='error')
+        # File error handling #
+        except (Timeout, IOError, FileNotFoundError, Exception) as err:
+            if count == 4:
+                print_err('\n* [ERROR] Maximum consecutive File Lock/IO errors detected .. check log & contact support *\n', 4)
+                exit(3)
 
-# Delete existing keys and call function
-# to make a new set of keys #
+            logger(f'File Lock/IO Error: {err}\n', password, \
+                    operation='write', handler='error')
+            print_err('\n* [ERROR] File Lock/IO failed .. waiting 5 seconds before attempting again *\n', 2)
+            count += 1
+
+def hd_crawl(item):
+    # Crawl through user directories #
+    for dirpath, dirnames, filenames in os.walk('C:\\Users\\', topdown=True):
+        for folder in dirnames:
+            if folder == item == 'Dbs':
+                shutil.move(dirpath + '\\' + folder, '.\\Dbs')
+                return True
+            elif folder == item == 'DecryptDock':
+                shutil.move(dirpath + '\\' + folder, '.\\DecryptDock')
+                return True
+            elif folder == item == 'Import':
+                shutil.move(dirpath + '\\' + folder, '.\\Import')
+                return True
+            elif folder == item == 'Keys':
+                shutil.move(dirpath + '\\' + folder, '.\\Keys')
+                return True
+            elif folder == item == 'UploadDock':
+                shutil.move(dirpath + '\\' + folder, '.\\UploadDock')
+                return True
+
+        for file in filenames:
+            # If item matches .txt, move to Keys dir #
+            if file == (item + '.txt'):
+                shutil.move(dirpath + '\\' + file, '.\\Keys\\' + file)
+                print(f'{item}.txt recovered')
+                return True
+
+            # If item matches .db, move to DBs dir #
+            elif file == (item + '.db'):
+                shutil.move(dirpath + '\\' + file, '.\\Dbs\\' + file)
+                print(f'{item}.db recovered')
+                return True
+
+    return False
+
+# Delete existing keys, create dbs, and call 
+# function to make a new set of keys #
 def key_handler(dbs, password):
     # Delete files if they exist #
     for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt', \
@@ -105,14 +144,19 @@ def logger(msg, password, operation=None, handler=None):
 
     # If writing to the log #
     if operation == 'write':
-        # If writing error #
-        if handler == 'error':
-            logging.error(msg)
-        # If writing exception #
-        elif handler == 'exception':
-            logging.exception(msg)
-        else:
-            logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
+        try:
+            with FileLock('cryptLog.log.lock', timeout=3):
+                # If writing error #
+                if handler == 'error':
+                    logging.error(msg)
+                # If writing exception #
+                elif handler == 'exception':
+                    logging.exception(msg)
+                else:
+                    logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
+        except Timeout:
+            print_err('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
+
     # If reading the log #
     elif operation == 'read':
         # If no data to read .. exit function #        
@@ -123,16 +167,21 @@ def logger(msg, password, operation=None, handler=None):
             plain = file_handler('cryptLog.log', 'r', password, operation='read')
 
             # Print log page by page #
-            for line in plain:
+            for line in plain.split('\n'):
                 if count == 60:
                     input('Hit enter to continue')
-                    system_cmd(cmds[0], None, None, 2)
                     count = 0
 
                 print(line)
                 count += 1
+
+            input('Hit enter to continue')
     else:
-        logging.error('No logging operation specified')
+        try:
+            with FileLock('cryptLog.log.lock', timeout=30):
+                logging.error('No logging operation specified')
+        except Timeout:
+            print_err('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
 
     # If no data in log .. exit function #
     if os.stat('cryptLog.log').st_size == 0:
@@ -179,7 +228,10 @@ def make_keys(db, password):
     crypt = aesccm.encrypt(nonce, db_key, password)
     file_handler('.\\Keys\\db_crypt.txt', 'wb', password, operation='write', data=crypt)
 
-    # Write AESCCM key and nonce to files # 
+    # Add password hash to key ring #
+    keyring.set_password('CryptDrive', 'CryptUser', password.decode('utf-8'))
+
+    # Write AESCCM key and nonce to files #     
     file_handler('.\\Keys\\aesccm.txt', 'wb', password, operation='write', data=key)
     file_handler('.\\Keys\\nonce.txt', 'wb', password, operation='write', data=nonce)
 

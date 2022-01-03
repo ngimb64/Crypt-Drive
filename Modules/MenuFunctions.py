@@ -11,6 +11,16 @@ from pydrive2.drive import GoogleDrive
 import os, re
 import Modules.Globals as Globals
 
+# # Function Index #
+# -------------------
+# - decryption:     decrypts data in decrypt doc to storage database or specified path
+# - file_upload:    uploads file in upload dock or specified path to Google Drive
+# - folder_upload:  uploads folder in upload dock or specified path to Google Drive
+# - import_key:     imports remote user decryption contents to decrypt shared data
+# - list_drive:     lists root directory of users Google Drive
+# - share_key:      shares decrypt components with other user protected via tempory password
+# - upload:         Google Drive upload function
+
 def decryption(db, cmd, user, password): 
     # If local user is specified #
     if user == '':
@@ -173,6 +183,8 @@ def list_drive():
     gauth = auth.GoogleAuth()
     gauth.LocalWebserverAuth()
     drive = GoogleDrive(gauth)
+
+    print('\nDrive Contents\n--------------\n')
 
     # Iterate through retrieved list and print #
     drive_list = drive.ListFile({'q': '\'root\' in parents and trashed=false'}).GetList()
