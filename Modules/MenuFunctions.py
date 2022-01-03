@@ -184,10 +184,11 @@ def list_drive():
     gauth.LocalWebserverAuth()
     drive = GoogleDrive(gauth)
 
-    print('\nDrive Contents\n--------------\n')
-
-    # Iterate through retrieved list and print #
+    # Retrieve contents of root Google Drive directory as list #
     drive_list = drive.ListFile({'q': '\'root\' in parents and trashed=false'}).GetList()
+
+    print('\nDrive Contents\n--------------\n')
+    # Iterate through retrieved list and print #
     for item in drive_list:
         if item['mimeType'] == 'application/vnd.google-apps.folder':
             print('Folder: {}'.format(item['title']))

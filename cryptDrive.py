@@ -265,25 +265,34 @@ def start_check(dbs, password):
 
         if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
         '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
-            re_item = re.search(r'(?<=.)[a-zA-Z\\]+(?=\.)', item)
+            re_item = re.search(r'(?<=\.)[a-zA-Z\_\\]+(?=\.)', item)
         else:
-            re_item = re.search(r'(?<=.)[a-zA-Z\\]+(?=$)', item)
+            re_item = re.search(r'(?<=\.)[a-zA-Z\_\\]+(?=$)', item)
 
+        # Get absolute path to file of execution thread #
         item_path = os.path.dirname(os.path.abspath(__file__))
+        # Append item path to program root dir #
         parse = item_path + re_item.group(0)
         try:
             # Check recycling bin for item #
             winshell.undelete(parse)
-            os.rename(parse, parse + '.db')
+
+            # If item is a text file #
+            if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt'):
+                os.rename(parse, parse + '.txt')
+            # If item is a database #
+            elif item in ('.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
+                os.rename(parse, parse + '.db')
+
             print(f'{item} was found in recycling bin')
         except:
             print_err(f'\n* {item} not found in recycling bin .. checking user storage *\n', 0.01)
 
             if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
             '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
-                re_item = re.search(r'(?<=)[a-zA-Z]+(?=\.)', item)
+                re_item = re.search(r'(?<=[a-zA-Z]\\)[a-zA-Z\_\\]+(?=\.)', item)
             else:
-                re_item = re.search(r'(?<=)[a-zA-Z]+$', item)
+                re_item = re.search(r'(?<=\.\\)[a-zA-Z\_\\]+(?=$)', item)
 
             # Attempt to recover missing item
             # from user storage in hard drive #
