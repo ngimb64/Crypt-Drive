@@ -20,15 +20,13 @@ import Modules.Globals as Globals
 # - start_check:        startup script to handle password hash & confirm program components exist
 # - password_input:     password hashing function to verify hash in keyring or create new password hash
 
-test = True
-
 # Main menu with command options #
 def main_menu(dbs, password, cmds):
     # Compile regex patterns #
-    re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9_\"\' \.,\-]{1,30})+')
-    re_email = re.compile(r'.+?@[a-zA-Z0-9_]{4,20}\.[a-z]{2,4}$')
-    re_user = re.compile(r'^[a-zA-Z0-9_]{1,30}')
-    re_pass = re.compile(r'^[a-zA-Z0-9_!+$@&(]{10,30}')
+    re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9\_\"\' \.\,\-]{1,30})+')
+    re_email = re.compile(r'.+?@[a-zA-Z0-9\_]{4,20}\.[a-z]{2,4}$')
+    re_user = re.compile(r'^[a-zA-Z0-9\_]{1,30}')
+    re_pass = re.compile(r'^[a-zA-Z0-9\_!+$@&(]{10,30}')
     re_phone = re.compile(r'^[0-9]{10}')
     custom_fig = Figlet(font='roman', width=100)
 
@@ -151,29 +149,14 @@ def main_menu(dbs, password, cmds):
 
 
         sleep(2.5)
-
+ 
 # Called in start_check script for checking
 # upload components from keys database #
 def db_check(dbs, password):
     # Load AESCCM decrypt components #
-    try:
-        with FileLock('.\\Keys\\aesccm.txt.lock', timeout=3):
-            with open('.\\Keys\\aesccm.txt', 'rb') as file:
-                key = file.read()
-
-        with FileLock('.\\Keys\\nonce.txt.lock', timeout=3):
-            with open('.\\Keys\\nonce.txt', 'rb') as file:
-                nonce = file.read()
-
-        with FileLock('.\\Keys\\db_crypt.txt.lock', timeout=3):
-            with open('.\\Keys\\db_crypt.txt', 'rb') as file:
-                crypt = file.read()       
-
-    # File error handling #
-    except (Timeout, IOError, FileNotFoundError, Exception):
-        print_err('\n* [ERROR] File Lock/IO error reading keys .. check contents of Keys folder *\n', 4)
-        exit(1)
-
+    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Unlock the local database key #
@@ -182,11 +165,6 @@ def db_check(dbs, password):
     except InvalidTag:
         print_err('\n* [ERROR] Incorrect unlock password entered *\n', 2)
         exit(2)
-
-    # Decrypt the key database #
-    db_crypt = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    plain = Fernet(db_key).decrypt(db_crypt)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=plain)
 
     # Retrieve upload key from database #
     query = Globals.db_retrieve(dbs[0], 'upload_key')
@@ -197,52 +175,56 @@ def db_check(dbs, password):
     nonce_call = query_handler(dbs[0], query, password, fetchone=True)
 
     # If the upload key call fails #
-    if upload_call == None:
-        print_err('\n* [ERROR] Database missing upload key .. creating new key & upload to db *\n'
+    if not upload_call or not nonce_call:
+        print_err('\n* [ERROR] Database missing upload component .. creating new key & upload to db *\n'
                   'Data will need to be re uploaded with new key otherwise decryption will fail\n', 2)
-        logger('Upload key missing .. new key created, data needs to be re-uploaded', password, \
+        logger('Upload component missing .. new key created, data needs to be re-uploaded', password, \
                operation='write', handler='exception')
 
-        # Create new upload key #
-        upload_key = b64encode(os.urandom(32)).decode('utf-8')
+        if upload_call == None:
+            # Create new upload key #
+            upload_key = b64encode(os.urandom(32))
+
+            # Encrypt upload key #
+            crypt_key = Fernet(db_key).encrypt(upload_key)
+
+            # Send upload key to keys database #
+            query = Globals.db_insert(dbs[0], 'upload_key', crypt_key.decode('utf-8'))
+            query_handler(dbs[0], query, password)
         
-        # Send upload key to keys database #
-        query = Globals.db_insert(dbs[0], 'upload_key', upload_key)
-        query_handler(dbs[0], query, password)
+        if nonce_call == None:
+            # Create new upload nonce #
+            nonce = b64encode(os.urandom(16))    
 
-    # If the nonce key fails #
-    if nonce_call == None:
-        print_err('\n* [ERROR] Database missing nonce .. creating new nonce & upload to db *\n'
-                  'Data will need to be re uploaded with new nonce otherwise decryption will fail\n', 2)
-        logger('Upload nonce missing .. new nonce created, data needs to be re-uploaded', password, \
-               operation='write', handler='exception')
+            # Encrypt upload nonce #
+            crypt_nonce = Fernet(db_key).encrypt(nonce)
 
-        # Create new nonce #
-        nonce = b64encode(os.urandom(16)).decode('utf-8')
-        
-        # Send nonce to keys database #
-        query = Globals.db_insert(dbs[0], 'upload_nonce', nonce)
-        query_handler(dbs[0], query, password)
+            # Send nonce to keys database #
+            query = Globals.db_insert(dbs[0], 'upload_nonce', crypt_nonce.decode('utf-8'))
+            query_handler(dbs[0], query, password)
+    else:
+        # Confirm upload key works with fernet #
+        Fernet(db_key).decrypt(upload_call[1].encode())
 
-    # Re-encrypt the key database #
-    plain = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    db_crypt = Fernet(db_key).encrypt(plain)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=db_crypt)
+        # Confirm upload key works with fernet #
+        Fernet(db_key).decrypt(nonce_call[1].encode())
 
 # Startup script checks if any directorys, keys, & files
 # associated with program are missing; fixes detected issues #
 def start_check(dbs, password):
+    global log
+
     failures = []
-    components = [ '.\\Dbs', '.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock', 
+    components = ( '.\\Dbs', '.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock', 
                    '.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', 
-                   '.\\Dbs\\keys.db', '.\\Dbs\\storage.db' ]
+                   '.\\Dbs\\keys.db', '.\\Dbs\\storage.db' )
 
     # Iterate each component through operations #
     for item in components:
         # If current item is a folder #
         if item in ('.\\Dbs', '.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock'):
             # If folder exists #
-            if Globals.dir_check(item) == True:
+            if Globals.dir_check(item):
                 continue
 
         else:
@@ -301,14 +283,18 @@ def start_check(dbs, password):
             # Attempt to recover missing item
             # from user storage in hard drive #
             recover = hd_crawl(re_item.group(0))
+
             # If all attempts fail, add item to failures list #
-            if recover == False:
+            if not recover:
                 print_err(f'\n* {item} not found in hard drive either *\n', 2)
                 failures.append(item)
             else:
                 print(f'{item} was found in user storage on hard drive')
 
         sleep(2)
+
+    # Enable logging to file #
+    Globals.log = True
 
     # If a component could not be recovered #
     if failures:
@@ -318,7 +304,7 @@ def start_check(dbs, password):
             if fail in ('.\\DecryptDock', '.\\Import', \
             '.\\UploadDock', '.\\Dbs\\storage.db' ):
                 # If fail item is folder #
-                if Globals.dir_check(fail) == True:
+                if Globals.dir_check(fail):
                     # Create folder #
                     os.mkdir(fail)
                 # If fail item is file #
@@ -328,20 +314,6 @@ def start_check(dbs, password):
                         # Create storage database #
                         query = Globals.db_create(dbs[1])
                         query_handler(dbs[1], query, password, create=True)
-
-                        # Load the AESCCM components #
-                        key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-                        nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
-                        crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
-                        aesccm = AESCCM(key)
-
-                        # Unlock the database key #
-                        db_key = aesccm.decrypt(nonce, crypt, password)
-
-                        # Encrypt the storage db #
-                        db_plain = file_handler('.\\Dbs\\storage.db', 'rb', password, operation='read')
-                        crypt = Fernet(db_key).encrypt(db_plain)
-                        file_handler('.\\Dbs\\storage.db', 'wb', password, operation='write', data=crypt)
                     else:
                         # Re-create entire key/db components #
                         key_handler(dbs, password)
@@ -351,9 +323,7 @@ def start_check(dbs, password):
 
 # Confirm pasword through hashing algorithm
 # or create new hash for key set #
-def password_input(cmds):
-    global test
-
+def password_input(cmds, test):
     count = 0
 
     # Initialize password hashing algorithm #
@@ -369,8 +339,14 @@ def password_input(cmds):
         test = False
 
     while True:
+        # Clear display #
+        system_cmd(cmds[0], None, None, 2)
+        
         # If user maxed attempts #
         if count == 12:
+            # Code can be added to notify administrator or 
+            # raise an alert to remote system # 
+
             # Lock the system #
             ctypes.wind11.user32.LockWorkStation()
 
@@ -381,9 +357,6 @@ def password_input(cmds):
                 msg = '!' * sec + f' {sec}'
                 print(msg, end='\r')
                 sleep(1)
-
-        # Clear display #
-        system_cmd(cmds[0], None, None, 2)
 
         # Prompt user for input #
         prompt = getpass('\nEnter your unlock password or password for creating keys: ')
@@ -410,10 +383,10 @@ def password_input(cmds):
 
             else:
                 # Return hash stored in keyring #
-                return keyring_hash
+                return keyring_hash.encode(), test
         else:
             # Return hashed input #
-            return pass_algo.hash(prompt)
+            return pass_algo.hash(prompt).encode(), test
 
 
 if __name__ == '__main__':
@@ -423,8 +396,11 @@ if __name__ == '__main__':
         # Commands tuple #
         cmds = ('cls',)
 
+        # Boolean switch #
+        test = True
+
         # Call password input function #
-        password = password_input(cmds).encode()
+        password, test = password_input(cmds, test)
 
         # Database & command tuples #
         dbs = ('keys', 'storage')
@@ -441,6 +417,8 @@ if __name__ == '__main__':
             [ os.mkdir(folder) for folder in ('.\\Dbs' ,'.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock') ]
             # Make new key/db setup #
             key_handler(dbs, password)
+            # Enable logging to file #
+            Globals.log = True
 
     except KeyboardInterrupt:
         print_err('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
@@ -452,7 +430,7 @@ if __name__ == '__main__':
             main_menu(dbs, password, cmds)
 
         except Exception as err:
-            print_err('\n* [EXCEPTION] Exception occured .. check log *', 2)
+            print_err('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
             logger(f'Exception occured: {err}\n', password, \
                     operation='write', handler='exception')
             continue

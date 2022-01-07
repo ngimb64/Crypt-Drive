@@ -3,7 +3,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 from cryptography.fernet import Fernet
 from cryptography.exceptions import InvalidTag
-from base64 import b64decode
+from base64 import b64encode, b64decode
 from time import sleep
 from pydrive2 import auth
 from pydrive2.auth import GoogleAuth
@@ -39,34 +39,25 @@ def decryption(db, cmd, user, password):
     crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
-    # Decrypt the key database #
-    db_crypt = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    plain = Fernet(db_key).decrypt(db_crypt)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=plain)
-
     # Retrieve decrypt key from database #
     query = Globals.db_retrieve(db, user_key)
     decrypt_call = query_handler(db, query, password, fetchone=True)
-    # If decrypt key doesn't exist in db #
-    if decrypt_call == None:
-        print_err('\n* Database missing decrypt key .. exit and restart program to make new keys *', 2)
-        return
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, user_nonce)
     nonce_call = query_handler(db, query, password, fetchone=True)
-    # If upload key doesn't exist in db #
-    if nonce_call == None:
-        print_err('\n* Database missing nonce .. exit and restart program to make new keys *', 2)
+
+    # If decrypt key doesn't exist in db #
+    if not decrypt_call or not nonce_call:
+        print_err('\n* [ERROR] Database missing decrypt component .. exit and restart program to fix issue *', 2)
         return
 
-    # Decode retrieved key & nonce from base64 format #
-    decrypt_key, decrypt_nonce = b64decode(decrypt_call[1]), b64decode(nonce_call[1])
+    # Decrypt key & nonce #
+    key = Fernet(db_key).decrypt(decrypt_call[1].encode())
+    nonce = Fernet(db_key).decrypt(nonce_call[1].encode())
 
-    # Re-encrypt the key database #
-    plain = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    db_crypt = Fernet(db_key).encrypt(plain)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=db_crypt)
+    # Decode retrieved key & nonce from base64 format #
+    decrypt_key, decrypt_nonce = b64decode(key), b64decode(nonce)
 
     # Initialize ChaCha20 encryption algo #
     algo = algorithms.ChaCha20(decrypt_key, decrypt_nonce)
@@ -77,6 +68,7 @@ def decryption(db, cmd, user, password):
     for dirpath, dirnames, filenames in os.walk('.\\DecryptDock'):
         system_cmd(cmd, None, None, 2)
         print(f'Decrypt path: {dirpath}\n')
+
         for file in filenames:
             print(f'Decrypting file: {file}')
             file_data = file_handler((dirpath + '\\' + file), 'rb', password, operation='read')
@@ -135,16 +127,17 @@ def import_key(db, password, user, user_pass):
     nonce = file_handler(nonce_path, 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
+    # Read users decrypt & nonce key #
+    crypt_key = file_handler(key_path, 'rb', password, operation='read')
+    crypt_nonce = file_handler(key_nonce_path, 'rb', password, operation='read')
+
     # Unlock users decrypt & nonce key #
-    crypt = file_handler(key_path, 'rb', password, operation='read')
     try:
-        user_key = aesccm.decrypt(nonce, crypt, user_pass.encode())
+        user_key = aesccm.decrypt(nonce, crypt_key, user_pass.encode())
+        key_nonce = aesccm.decrypt(nonce, crypt_nonce, user_pass.encode())
     except InvalidTag:
         print_err('* [ERROR] Incorrect unlock password entered *', 2)
         return
-
-    crypt = file_handler(key_nonce_path, 'rb', password, operation='read')
-    key_nonce = aesccm.decrypt(nonce, crypt, user_pass.encode())
 
     # Load local AESCCM decrypt components #
     key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
@@ -155,23 +148,20 @@ def import_key(db, password, user, user_pass):
     crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
-    # Decrypt the key database #
-    db_crypt = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    plain = Fernet(db_key).decrypt(db_crypt)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=plain)
+    # Encode user components #
+    key, nonce = b64encode(user_key), b64encode(key_nonce)
+
+    # Encrypt user components #
+    upload_key = Fernet(db_key).encrypt(key)
+    upload_nonce = Fernet(db_key).encrypt(nonce)
 
     # Send users decrypt key to key database #
-    query = Globals.db_insert(db, f'{user}_decrypt', user_key.decode())
+    query = Globals.db_insert(db, f'{user}_decrypt', upload_key.decode())
     query_handler(db, query, password)
 
     # Send users nonce to database #
-    query = Globals.db_insert(db, f'{user}_nonce', key_nonce.decode())
+    query = Globals.db_insert(db, f'{user}_nonce', upload_nonce.decode())
     query_handler(db, query, password)
-
-    # Re-encrypt the key database #
-    plain = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    db_crypt = Fernet(db_key).encrypt(plain)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=db_crypt)
 
     # Delete file in Import dir #
     [ os.remove(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path) ]
@@ -207,31 +197,26 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
-    # Decrypt the key database #
-    db_crypt = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    plain = Fernet(db_key).decrypt(db_crypt)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=plain)
-
     # Retrieve decrypt key from database #
     query = Globals.db_retrieve(db, 'upload_key')
     decrypt_call = query_handler(db, query, password, fetchone=True)
-    # If upload key doesn't exist in db #
-    if decrypt_call == None:
-        print_err('\n* Database missing decrypt key .. exit and restart program to make new keys *', 2)
-        return
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, 'upload_nonce')
     nonce_call = query_handler(db, query, password, fetchone=True)
+
     # If upload key doesn't exist in db #
-    if nonce_call == None:
-        print_err('\n* Database missing nonce .. exit and restart program to make new keys *', 2)
+    if not decrypt_call or not nonce_call:
+        print_err('\n* Database missing decrypt component .. exit and restart program to make new keys *', 2)
         return
 
-    # Re-encrypt the key database #
-    plain = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    db_crypt = Fernet(db_key).encrypt(plain)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=db_crypt)
+    # Decrypt components #
+    key = Fernet(db_key).decrypt(decrypt_call[1].encode())
+    nonce = Fernet(db_key).decrypt(nonce_call[1].encode())
+
+    # Decode components #
+    share_key = b64decode(key)
+    share_nonce = b64decode(nonce)
 
     # Prompt user for password to protect key on transit #
     while True:
@@ -247,8 +232,10 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     key = AESCCM.generate_key(bit_length=256)
     aesccm = AESCCM(key)
     nonce = os.urandom(13)
-    key_crypt = aesccm.encrypt(nonce, decrypt_call[1].encode(), key_pass.encode())
-    key_nonce = aesccm.encrypt(nonce, nonce_call[1].encode(), key_pass.encode())
+
+    # Encrypt components with temporary password-based encryption #
+    key_crypt = aesccm.encrypt(nonce, share_key, key_pass.encode())
+    key_nonce = aesccm.encrypt(nonce, share_nonce, key_pass.encode())
 
     os.chdir('.\\Keys')
 
@@ -297,34 +284,26 @@ def upload(db, cmd, password, local_path):
     crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
-    # Decrypt the key database #
-    db_crypt = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    plain = Fernet(db_key).decrypt(db_crypt)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=plain)
-
     # Retrieve upload key from database #
     query = Globals.db_retrieve(db, 'upload_key')
     upload_call = query_handler(db, query, password, fetchone=True)
-    # If upload key doesn't exist in db #
-    if upload_call == None:
-        print_err('\n* Database missing upload key .. exit and restart program to make new keys *', 2)
-        return
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, 'upload_nonce')
     nonce_call = query_handler(db, query, password, fetchone=True)
+
     # If upload key doesn't exist in db #
-    if nonce_call == None:
-        print_err('\n* Database missing upload nonce .. exit and restart program to make new keys *', 2)
+    if not upload_call or not nonce_call:
+        print_err('\n* Database missing upload key .. exit and restart program to make new keys *', 2)
         return
 
-    # Decode retrieved key & nonce from base64 format #
-    upload_key, upload_nonce = b64decode(upload_call[1]), b64decode(nonce_call[1])
+    # Decrypt & decode upload components #
+    plain_key = Fernet(db_key).decrypt(upload_call[1].encode())
+    plain_nonce = Fernet(db_key).decrypt(nonce_call[1].encode())
 
-    # Re-encrypt the key database #
-    plain = file_handler('.\\Dbs\\keys.db', 'rb', password, operation='read')
-    crypt = Fernet(db_key).encrypt(plain)
-    file_handler('.\\Dbs\\keys.db', 'wb', password, operation='write', data=crypt)
+    # Decode upload components #
+    upload_key = b64decode(plain_key)
+    upload_nonce = b64decode(plain_nonce)
 
     # Initialize ChaCha20 encryption algo #
     algo = algorithms.ChaCha20(upload_key, upload_nonce)
