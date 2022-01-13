@@ -1,27 +1,32 @@
-from Modules.Utils import file_handler, msg_format, msg_send, print_err, query_handler, system_cmd
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
-from cryptography.fernet import Fernet
-from cryptography.exceptions import InvalidTag
+# Built-in Modules #
 from base64 import b64encode, b64decode
 from time import sleep
+import os, re
+
+# Third-party Modules #
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
+from cryptography.fernet import Fernet
+from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
-import os, re
+
+# Custom Modules #
 import Modules.Globals as Globals
+from Modules.Utils import FileHandler, MsgFormat, MsgSend, PrintErr, QueryHandler, SystemCmd
 
 # # Function Index #
 # -------------------
-# - decryption:     decrypts data in decrypt doc to storage database or specified path
-# - file_upload:    uploads file in upload dock or specified path to Google Drive
-# - folder_upload:  uploads folder in upload dock or specified path to Google Drive
-# - import_key:     imports remote user decryption contents to decrypt shared data
-# - list_drive:     lists root directory of users Google Drive
-# - share_key:      shares decrypt components with other user protected via tempory password
-# - upload:         Google Drive upload function
+# - Decryption:     decrypts data in decrypt doc to storage database or specified path
+# - FileUpload:     uploads file in upload dock or specified path to Google Drive
+# - FolderUpload:   uploads folder in upload dock or specified path to Google Drive
+# - ImportKey:     imports remote user decryption contents to decrypt shared data
+# - ListDrive:     lists root directory of users Google Drive
+# - ShareKey:      shares decrypt components with other user protected via tempory password
+# - Upload:         Google Drive upload function
 
-def decryption(db, cmd, user, password): 
+def Decryption(db, cmd, user, password): 
     # If local user is specified #
     if user == '':
         user_key = 'upload_key'
@@ -31,25 +36,25 @@ def decryption(db, cmd, user, password):
         user_nonce = f'{user}_nonce'
 
     # Load AESCCM decrypt components #
-    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Unlock the local database key #
-    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+    crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
     # Retrieve decrypt key from database #
     query = Globals.db_retrieve(db, user_key)
-    decrypt_call = query_handler(db, query, password, fetchone=True)
+    decrypt_call = QueryHandler(db, query, password, fetchone=True)
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, user_nonce)
-    nonce_call = query_handler(db, query, password, fetchone=True)
+    nonce_call = QueryHandler(db, query, password, fetchone=True)
 
     # If decrypt key doesn't exist in db #
     if not decrypt_call or not nonce_call:
-        print_err('\n* [ERROR] Database missing decrypt component .. exit and restart program to fix issue *', 2)
+        PrintErr('\n* [ERROR] Database missing decrypt component .. exit and restart program to fix issue *', 2)
         return
 
     # Decrypt key & nonce #
@@ -66,19 +71,19 @@ def decryption(db, cmd, user, password):
 
     # Iterate through folders/files recurisivly in DecryptDock, decrypt data #
     for dirpath, dirnames, filenames in os.walk('.\\DecryptDock'):
-        system_cmd(cmd, None, None, 2)
+        SystemCmd(cmd, None, None, 2)
         print(f'Decrypt path: {dirpath}\n')
 
         for file in filenames:
             print(f'Decrypting file: {file}')
-            file_data = file_handler((dirpath + '\\' + file), 'rb', password, operation='read')
+            file_data = FileHandler((dirpath + '\\' + file), 'rb', password, operation='read')
             plain = decryptor.update(file_data)
             os.remove(dirpath + '\\' + file)
-            file_handler((dirpath + '\\'+ file), 'wb', password, operation='write', data=plain)
+            FileHandler((dirpath + '\\'+ file), 'wb', password, operation='write', data=plain)
 
     print('\n[SUCCESS] Data has been decrypted')
 
-def file_upload(drive, up_path, dir_path, file, http):
+def FileUpload(drive, up_path, dir_path, file, http):
     # Create file object for upload #
     if up_path == None:
         file_obj = drive.CreateFile({'title': file})
@@ -95,9 +100,9 @@ def file_upload(drive, up_path, dir_path, file, http):
                 file_obj = drive.CreateFile({'parents': [{'id': folder['id']}], 'title': file})          
                 file_obj.SetContentFile(dir_path + '\\' + file)
                 # Upload & pass http object into upload call #
-                file_obj.Upload(param={'http': http})
+                file_obj.Upload(param={'http': http})       
 
-def folder_upload(drive, up_path, dirname, http):
+def FolderUpload(drive, up_path, dirname, http):
     if up_path == None:
         # Create folder object & upload #
         folder = drive.CreateFile({'title': dirname, 'mimeType': 'application/vnd.google-apps.folder'})
@@ -108,7 +113,7 @@ def folder_upload(drive, up_path, dirname, http):
                                    'mimeType': 'application/vnd.google-apps.folder'})
         folder.Upload(param={'http': http})
 
-def import_key(db, password, user, user_pass):
+def ImportKey(db, password, user, user_pass):
     key_path = f'.\\Import\\{user}_decrypt.txt'
     key_nonce_path = f'.\\Import\\{user}_key_nonce.txt'
     aesccm_path = f'.\\Import\\{user}_aesccm.txt'
@@ -117,35 +122,35 @@ def import_key(db, password, user, user_pass):
     # Confirm all critical files to operation are present #
     if Globals.file_check(key_path) == False or Globals.file_check(key_nonce_path) == False \
     or Globals.file_check(aesccm_path) == False or Globals.file_check(nonce_path) == False:
-        print_err('* [ERROR] A component needed for importing key is missing *\n'
+        PrintErr('* [ERROR] A component needed for importing key is missing *\n'
                   'To import a key 4 files are required in the Import directory:\n'
                   '[user]_decrypt.txt, [user]_key_nonce.txt, [user]_aesccm.txt, [user]_nonce.txt', 2.5)
         return
 
     # Load user AESCCM decrypt components #
-    key = file_handler(aesccm_path, 'rb', password, operation='read')
-    nonce = file_handler(nonce_path, 'rb', password, operation='read')
+    key = FileHandler(aesccm_path, 'rb', password, operation='read')
+    nonce = FileHandler(nonce_path, 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Read users decrypt & nonce key #
-    crypt_key = file_handler(key_path, 'rb', password, operation='read')
-    crypt_nonce = file_handler(key_nonce_path, 'rb', password, operation='read')
+    crypt_key = FileHandler(key_path, 'rb', password, operation='read')
+    crypt_nonce = FileHandler(key_nonce_path, 'rb', password, operation='read')
 
     # Unlock users decrypt & nonce key #
     try:
         user_key = aesccm.decrypt(nonce, crypt_key, user_pass.encode())
         key_nonce = aesccm.decrypt(nonce, crypt_nonce, user_pass.encode())
     except InvalidTag:
-        print_err('* [ERROR] Incorrect unlock password entered *', 2)
+        PrintErr('* [ERROR] Incorrect unlock password entered *', 2)
         return
 
     # Load local AESCCM decrypt components #
-    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Unlock the local database key #
-    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+    crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
     # Encode user components #
@@ -157,18 +162,18 @@ def import_key(db, password, user, user_pass):
 
     # Send users decrypt key to key database #
     query = Globals.db_insert(db, f'{user}_decrypt', upload_key.decode())
-    query_handler(db, query, password)
+    QueryHandler(db, query, password)
 
     # Send users nonce to database #
     query = Globals.db_insert(db, f'{user}_nonce', upload_nonce.decode())
-    query_handler(db, query, password)
+    QueryHandler(db, query, password)
 
     # Delete file in Import dir #
     [ os.remove(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path) ]
 
     print('\n[SUCCESS] {}\'s public key has been imported .. now in Keys directory & databases'.format(user))
 
-def list_drive():
+def ListDrive():
     # Authenticate drive #
     gauth = auth.GoogleAuth()
     gauth.LocalWebserverAuth()
@@ -187,27 +192,27 @@ def list_drive():
 
     sleep(2.5)
 
-def share_key(db, password, send_email, email_pass, receivers, re_pass):
+def ShareKey(db, password, send_email, email_pass, receivers, re_pass):
     # Load AESCCM decrypt components #
-    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
 
     # Unlock the local database key #
     aesccm = AESCCM(key)
-    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+    crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
     # Retrieve decrypt key from database #
     query = Globals.db_retrieve(db, 'upload_key')
-    decrypt_call = query_handler(db, query, password, fetchone=True)
+    decrypt_call = QueryHandler(db, query, password, fetchone=True)
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, 'upload_nonce')
-    nonce_call = query_handler(db, query, password, fetchone=True)
+    nonce_call = QueryHandler(db, query, password, fetchone=True)
 
     # If upload key doesn't exist in db #
     if not decrypt_call or not nonce_call:
-        print_err('\n* Database missing decrypt component .. exit and restart program to make new keys *', 2)
+        PrintErr('\n* Database missing decrypt component .. exit and restart program to make new keys *', 2)
         return
 
     # Decrypt components #
@@ -222,7 +227,7 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     while True:
         key_pass = input('Enter password to encrypt key for email transmission: ')
         if re.search(re_pass, key_pass) == False:
-            print_err('\n* [ERROR] Invalid password format .. numbers, letters & _+$@&( special charaters allowed *', 2)
+            PrintErr('\n* [ERROR] Invalid password format .. numbers, letters & _+$@&( special charaters allowed *', 2)
             continue
 
         print('\n')
@@ -240,16 +245,16 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     os.chdir('.\\Keys')
 
     # Grab username from email with regex & format it to file names #
-    user = re.search(r'[a-zA-Z0-9_]+?(?=@)', send_email)
+    user = re.search(r'[a-zA-Z0-9\_]+?(?=@)', send_email)
     key_path = f'{user.group(0)}_decrypt.txt'
     key_nonce_path = f'{user.group(0)}_key_nonce.txt'
     aesccm_path = f'{user.group(0)}_aesccm.txt'
     nonce_path = f'{user.group(0)}_nonce.txt'
 
-    file_handler(key_path, 'wb', password, operation='write', data=key_crypt)
-    file_handler(key_nonce_path, 'wb', password, operation='write', data=key_nonce)
-    file_handler(aesccm_path, 'wb', password, operation='write', data=key)
-    file_handler(nonce_path, 'wb', password, operation='write', data=nonce)
+    FileHandler(key_path, 'wb', password, operation='write', data=key_crypt)
+    FileHandler(key_nonce_path, 'wb', password, operation='write', data=key_nonce)
+    FileHandler(aesccm_path, 'wb', password, operation='write', data=key)
+    FileHandler(nonce_path, 'wb', password, operation='write', data=nonce)
 
     # Group message data to be iterated over #
     body = ('Attached below is your encrypted decryption key .. download and move to import folder', \
@@ -263,8 +268,8 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     # Iterate of different message destinations #
     for receiver in receivers:
         # Format and send emails/text #
-        msg = msg_format(send_email, receiver, body[count], files[count])
-        msg_send(send_email, receiver, email_pass, msg)        
+        msg = MsgFormat(send_email, receiver, body[count], files[count])
+        MsgSend(send_email, receiver, email_pass, msg)        
         count += 1
 
     # Delete sent items
@@ -274,27 +279,27 @@ def share_key(db, password, send_email, email_pass, receivers, re_pass):
     print('\n[SUCCESS] Keys and password successfully sent')
 
 # Encrypt & upload to cloud storage #
-def upload(db, cmd, password, local_path):
+def Upload(db, cmd, password, local_path):
     # Load AESCCM decrypt components #
-    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Unlock the local database key #
-    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+    crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     db_key = aesccm.decrypt(nonce, crypt, password)
 
     # Retrieve upload key from database #
     query = Globals.db_retrieve(db, 'upload_key')
-    upload_call = query_handler(db, query, password, fetchone=True)
+    upload_call = QueryHandler(db, query, password, fetchone=True)
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(db, 'upload_nonce')
-    nonce_call = query_handler(db, query, password, fetchone=True)
+    nonce_call = QueryHandler(db, query, password, fetchone=True)
 
     # If upload key doesn't exist in db #
     if not upload_call or not nonce_call:
-        print_err('\n* Database missing upload key .. exit and restart program to make new keys *', 2)
+        PrintErr('\n* Database missing upload key .. exit and restart program to make new keys *', 2)
         return
 
     # Decrypt & decode upload components #
@@ -320,13 +325,13 @@ def upload(db, cmd, password, local_path):
 
     # Grab only the rightmost directory of path save result in other regex 
     # as anchor point for confirming rescursive directories while crawling #
-    reg_pathEdge = re.search(r'[a-zA-Z0-9_\"\' \.,\-]+$', local_path)
+    reg_pathEdge = re.search(r'[a-zA-Z0-9_\"\' \.\,\-]+$', local_path)
     reg_extPath = re.compile(fr'(?<={str(reg_pathEdge.group(0))}\\).+')
 
     # Iterate through folders/files recursively in upload source path, 
     # encrypt data, then upload to destination path #
     for dirpath, dirnames, filenames in os.walk(local_path):
-        system_cmd(cmd, None, None, 2)
+        SystemCmd(cmd, None, None, 2)
         
         print(f'\nUpload path: {dirpath}\n')
         extPath = re.search(reg_extPath, dirpath)
@@ -334,25 +339,25 @@ def upload(db, cmd, password, local_path):
         # Upload folder to Drive #
         for dirname in dirnames:
             print(f'Directory name: {dirname}')
-            if extPath == None:
-                folder_upload(drive, None, dirname, http)
+            if extPath ==   None:
+                FolderUpload(drive, None, dirname, http)
             else:
-                folder_upload(drive, str(extPath.group(0)), dirname, http)
+                FolderUpload(drive, str(extPath.group(0)), dirname, http)
 
         print('\n')
 
         for file in filenames:
             print(f'File: {file}')
             # Read data, encrypt, & write to UploadDock #
-            file_data = file_handler((dirpath + '\\' + file), 'rb', password, operation='read')
+            file_data = FileHandler((dirpath + '\\' + file), 'rb', password, operation='read')
             crypt = encryptor.update(file_data)
-            file_handler(('.\\UploadDock\\'+ file), 'wb', password, operation='write', data=crypt)
+            FileHandler(('.\\UploadDock\\'+ file), 'wb', password, operation='write', data=crypt)
 
             # Upload file to Drive #
             if extPath ==  None:
-                file_upload(drive, None, '.\\UploadDock', file, http)
+                FileUpload(drive, None, '.\\UploadDock', file, http)
             else:
-                file_upload(drive, str(extPath.group(0)), '.\\UploadDock', file, http)
+                FileUpload(drive, str(extPath.group(0)), '.\\UploadDock', file, http)
 
             os.remove('.\\UploadDock\\' + file)
 

@@ -1,27 +1,33 @@
-from Modules.Utils import file_handler, hd_crawl, key_handler, logger, \
-                          make_keys, print_err, query_handler, system_cmd
-from Modules.MenuFunctions import *
-from getpass import getpass
-from argon2 import PasswordHasher
+# Built-in modules #
 from base64 import b64encode
-from filelock import FileLock, Timeout
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-from cryptography.fernet import Fernet
-from cryptography.exceptions import InvalidTag
-from pyfiglet import Figlet
+from getpass import getpass
 from time import sleep
-import os, re, logging, keyring, ctypes, shutil, winshell
+import ctypes, logging, os, re, shutil
+
+# Third-party modules #
+from argon2 import PasswordHasher
+from cryptography.exceptions import InvalidTag
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from filelock import FileLock, Timeout
+from pyfiglet import Figlet
+import keyring, winshell
+
+# Custom modules #
 import Modules.Globals as Globals
+from Modules.MenuFunctions import *
+from Modules.Utils import FileHandler, HdCrawl, KeyHandler, Logger, \
+                          PrintErr, QueryHandler, SystemCmd
 
 # # Function Index #
 # -------------------
-# - main_menu:          displays command options, executes selected options
-# - db_check:           function in start_check for checking upload components in keys db
-# - start_check:        startup script to handle password hash & confirm program components exist
-# - password_input:     password hashing function to verify hash in keyring or create new password hash
+# - MainMenu:           displays command options, executes selected options
+# - DbCheck:            function in StartCheck for checking upload components in keys db
+# - StartCheck:         startup script to handle password hash & confirm program components exist
+# - PasswordInput:      password hashing function to verify hash in keyring or create new password hash
 
 # Main menu with command options #
-def main_menu(dbs, password, cmds):
+def MainMenu(dbs, password, cmds):
     # Compile regex patterns #
     re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9\_\"\' \.\,\-]{1,30})+')
     re_email = re.compile(r'.+?@[a-zA-Z0-9\_]{4,20}\.[a-z]{2,4}$')
@@ -30,10 +36,9 @@ def main_menu(dbs, password, cmds):
     re_phone = re.compile(r'^[0-9]{10}')
     custom_fig = Figlet(font='roman', width=100)
 
-
     # Clears screen per loop for clean display #
     while True:
-        system_cmd(cmds[0], None, None, 2)
+        SystemCmd(cmds[0], None, None, 2)
         print(custom_fig.renderText('Crypt Drive'))
         print('''
     @===============@
@@ -55,7 +60,7 @@ def main_menu(dbs, password, cmds):
             while True:
                 local_path = input('\nSpecify path to folder C:\\like\\this or enter for UploadDock:\n')
                 if re.search(re_path, local_path) == False:
-                    print_err('\n* [ERROR] Improper format .. try again *', 2)
+                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
                     continue
 
                 break
@@ -63,11 +68,11 @@ def main_menu(dbs, password, cmds):
             if local_path == '':
                 local_path == '.\\UploadDock'
 
-            upload(dbs[0], cmds[0], password, local_path)
+            Upload(dbs[0], cmds[0], password, local_path)
 
         # List cloud contents #
         elif prompt == 'l':
-            list_drive()
+            ListDrive()
 
         # Import public key #
         elif prompt == 'i':
@@ -75,24 +80,24 @@ def main_menu(dbs, password, cmds):
                 username = input('Enter username for key to be imported: ')
                 import_pass = input('Enter user decryption password in text message: ')
                 if re.search(re_user, username) == False or re.search(re_pass, import_pass) == False:
-                    print_err('\n* [ERROR] Improper format .. try again *', 2)
+                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
                     continue
                
                 break
 
-            import_key(dbs[0], password, username, import_pass)
+            ImportKey(dbs[0], password, username, import_pass)
 
         # Decrypt data in DecryptDock
         elif prompt == 'd':
             while True: 
                 username = input('Enter username of data to decrypt or hit enter for your own data: ')
                 if re.search(re_user, username) == False and username != '':
-                    print_err('\n* [ERROR] Improper format .. try again *', 2)
+                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
                     continue
 
                 break
 
-            decryption(dbs[0], cmds[0], username, password)
+            Decryption(dbs[0], cmds[0], username, password)
 
         # Share private key with user #
         elif prompt == 's':
@@ -107,11 +112,11 @@ def main_menu(dbs, password, cmds):
                 if re.search(re_email, send_email) == False or re.search(re_pass, email_pass) == False \
                 or re.search(re_email, recv_email) == False or re.search(re_email, recv_email2) == False \
                 or re.search(re_phone, recv_phone) == False:
-                    print_err('\n* [ERROR] One of the inputs provided were improper .. try again *\n', 2)
+                    PrintErr('\n* [ERROR] One of the inputs provided were improper .. try again *\n', 2)
                     continue
 
                 if carrier not in ('verison', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost', 'us-cellular'):
-                    print_err('\n* [ERROR] improper provider selection made *', 2)
+                    PrintErr('\n* [ERROR] improper provider selection made *', 2)
                     continue
                 else:
                     if carrier == 'verison':
@@ -132,7 +137,7 @@ def main_menu(dbs, password, cmds):
                 break
 
             receivers = (recv_email, recv_email2, recv_phone + '@' + provider)                
-            share_key(dbs[0], password, send_email, email_pass, receivers, re_pass)
+            ShareKey(dbs[0], password, send_email, email_pass, receivers, re_pass)
 
         # Exit the program #
         elif prompt == 'e':
@@ -141,7 +146,7 @@ def main_menu(dbs, password, cmds):
             exit(0)
 
         elif prompt == 'v':
-            logger(None, password, operation='read', handler=None)
+            Logger(None, password, operation='read', handler=None)
 
         # Improper input handling #
         else:
@@ -150,35 +155,35 @@ def main_menu(dbs, password, cmds):
 
         sleep(2.5)
  
-# Called in start_check script for checking
+# Called in StartCheck script for checking
 # upload components from keys database #
-def db_check(dbs, password):
+def DbCheck(dbs, password):
     # Load AESCCM decrypt components #
-    key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-    nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
-    crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+    key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+    nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+    crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
     aesccm = AESCCM(key)
 
     # Unlock the local database key #
     try:
         db_key = aesccm.decrypt(nonce, crypt, password)
     except InvalidTag:
-        print_err('\n* [ERROR] Incorrect unlock password entered *\n', 2)
+        PrintErr('\n* [ERROR] Incorrect unlock password entered *\n', 2)
         exit(2)
 
     # Retrieve upload key from database #
     query = Globals.db_retrieve(dbs[0], 'upload_key')
-    upload_call = query_handler(dbs[0], query, password, fetchone=True)
+    upload_call = QueryHandler(dbs[0], query, password, fetchone=True)
 
     # Retrieve nonce from database #
     query = Globals.db_retrieve(dbs[0], 'upload_nonce')
-    nonce_call = query_handler(dbs[0], query, password, fetchone=True)
+    nonce_call = QueryHandler(dbs[0], query, password, fetchone=True)
 
     # If the upload key call fails #
     if not upload_call or not nonce_call:
-        print_err('\n* [ERROR] Database missing upload component .. creating new key & upload to db *\n'
+        PrintErr('\n* [ERROR] Database missing upload component .. creating new key & upload to db *\n'
                   'Data will need to be re uploaded with new key otherwise decryption will fail\n', 2)
-        logger('Upload component missing .. new key created, data needs to be re-uploaded', password, \
+        Logger('Upload component missing .. new key created, data needs to be re-uploaded', password, \
                operation='write', handler='exception')
 
         if upload_call == None:
@@ -190,7 +195,7 @@ def db_check(dbs, password):
 
             # Send upload key to keys database #
             query = Globals.db_insert(dbs[0], 'upload_key', crypt_key.decode('utf-8'))
-            query_handler(dbs[0], query, password)
+            QueryHandler(dbs[0], query, password)
         
         if nonce_call == None:
             # Create new upload nonce #
@@ -201,7 +206,7 @@ def db_check(dbs, password):
 
             # Send nonce to keys database #
             query = Globals.db_insert(dbs[0], 'upload_nonce', crypt_nonce.decode('utf-8'))
-            query_handler(dbs[0], query, password)
+            QueryHandler(dbs[0], query, password)
     else:
         # Confirm upload key works with fernet #
         Fernet(db_key).decrypt(upload_call[1].encode())
@@ -211,7 +216,7 @@ def db_check(dbs, password):
 
 # Startup script checks if any directorys, keys, & files
 # associated with program are missing; fixes detected issues #
-def start_check(dbs, password):
+def StartCheck(dbs, password):
     global log
 
     failures = []
@@ -235,7 +240,7 @@ def start_check(dbs, password):
                     # If the curent item is the keys db #
                     if item == '.\\Dbs\\keys.db':
                         # Check upload conents in keys db #
-                        db_check(dbs, password)
+                        DbCheck(dbs, password)
 
                     continue
 
@@ -270,7 +275,7 @@ def start_check(dbs, password):
 
             print(f'{item} was found in recycling bin')
         except:
-            print_err(f'\n* {item} not found in recycling bin .. checking user storage *\n', 0.01)
+            PrintErr(f'\n* {item} not found in recycling bin .. checking user storage *\n', 0.01)
 
             # If file is file #
             if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
@@ -282,11 +287,11 @@ def start_check(dbs, password):
 
             # Attempt to recover missing item
             # from user storage in hard drive #
-            recover = hd_crawl(re_item.group(0))
+            recover = HdCrawl(re_item.group(0))
 
             # If all attempts fail, add item to failures list #
             if not recover:
-                print_err(f'\n* {item} not found in hard drive either *\n', 2)
+                PrintErr(f'\n* {item} not found in hard drive either *\n', 2)
                 failures.append(item)
             else:
                 print(f'{item} was found in user storage on hard drive')
@@ -313,34 +318,34 @@ def start_check(dbs, password):
                     if fail == '.\\Dbs\\storage.db':
                         # Create storage database #
                         query = Globals.db_create(dbs[1])
-                        query_handler(dbs[1], query, password, create=True)
+                        QueryHandler(dbs[1], query, password, create=True)
                     else:
                         # Re-create entire key/db components #
-                        key_handler(dbs, password)
+                        KeyHandler(dbs, password)
             else:
                 # Re-create entire key/db components #
-                key_handler(dbs, password)
+                KeyHandler(dbs, password)
 
 # Confirm pasword through hashing algorithm
 # or create new hash for key set #
-def password_input(cmds, test):
+def PasswordInput(cmds, test):
     count = 0
 
     # Initialize password hashing algorithm #
     pass_algo = PasswordHasher()
 
     key_check, nonce_check = Globals.file_check('.\\Keys\\aesccm.txt'), Globals.file_check('.\\Keys\\nonce.txt')
-    dbKey_check, db_check = Globals.file_check('.\\Keys\\db_crypt.txt'), Globals.file_check('.\\Dbs\\keys.db')
+    dbKey_check, DbCheck = Globals.file_check('.\\Keys\\db_crypt.txt'), Globals.file_check('.\\Dbs\\keys.db')
     storage_check = Globals.file_check('.\\Dbs\\storage.db')
 
-    # If all major components missing avoid start_check script #
+    # If all major components missing avoid StartCheck script #
     if not key_check and not nonce_check and not dbKey_check \
-    and not db_check and not storage_check:
+    and not DbCheck and not storage_check:
         test = False
 
     while True:
         # Clear display #
-        system_cmd(cmds[0], None, None, 2)
+        SystemCmd(cmds[0], None, None, 2)
         
         # If user maxed attempts #
         if count == 12:
@@ -361,23 +366,23 @@ def password_input(cmds, test):
         # Prompt user for input #
         prompt = getpass('\nEnter your unlock password or password for creating keys: ')
         if re.search(r'^[a-zA-Z0-9_!+$@&(]{12,30}', prompt) == None:
-            print_err('\n* [ERROR] Invalid password format .. numbers, letters & _+$@&( special charaters allowed *', 2)
+            PrintErr('\n* [ERROR] Invalid password format .. numbers, letters & _+$@&( special charaters allowed *', 2)
             count += 1
             continue
 
         # If files exist indicating password is set #
-        if key_check and nonce_check and dbKey_check and db_check:
+        if key_check and nonce_check and dbKey_check and DbCheck:
             # Attempt to retrieve password hash from key ring #
             try:
                 keyring_hash = keyring.get_password('CryptDrive', 'CryptUser')
             except keyring.errors.KeyringError:
-                print_err('\n* [ERROR] Attempted access to key that does not exist .. *', 2.5)
+                PrintErr('\n* [ERROR] Attempted access to key that does not exist .. *', 2.5)
                 return
 
             # Verify input by comparing keyring hash against algo #
             check = pass_algo.verify(keyring_hash, prompt)
             if check == False:
-                print_err('\n* [ERROR] Improper input provided *', 2)
+                PrintErr('\n* [ERROR] Improper input provided *', 2)
                 count += 1
                 continue
 
@@ -400,7 +405,7 @@ if __name__ == '__main__':
         test = True
 
         # Call password input function #
-        password, test = password_input(cmds, test)
+        password, test = PasswordInput(cmds, test)
 
         # Database & command tuples #
         dbs = ('keys', 'storage')
@@ -411,29 +416,33 @@ if __name__ == '__main__':
         if test:
             # Start up script for checking
             # critical operation components #
-            start_check(dbs, password)
+            StartCheck(dbs, password)
         else:
             # Create folders #
-            [ os.mkdir(folder) for folder in ('.\\Dbs' ,'.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock') ]
+                try:
+                    [ os.mkdir(folder) for folder in ('.\\Dbs' ,'.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock') ]
+                except FileExistsError:
+                    pass
+
             # Make new key/db setup #
-            key_handler(dbs, password)
+            KeyHandler(dbs, password)
             # Enable logging to file #
             Globals.log = True
 
     except KeyboardInterrupt:
-        print_err('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
+        PrintErr('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
         exit(0)
 
     # Main menu exception handled loop #
     while True:
         try:
-            main_menu(dbs, password, cmds)
+            MainMenu(dbs, password, cmds)
 
         except Exception as err:
-            print_err('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
-            logger(f'Exception occured: {err}\n', password, \
+            PrintErr('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
+            Logger(f'Exception occured: {err}\n', password, \
                     operation='write', handler='exception')
             continue
         except KeyboardInterrupt:
-            print_err('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
+            PrintErr('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
             break

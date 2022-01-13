@@ -1,35 +1,41 @@
-from filelock import FileLock, Timeout
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-from cryptography.fernet import Fernet
+# Built-in Modules #
 from base64 import b64encode
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from time import sleep
+from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
 from sys import stderr
 from threading import BoundedSemaphore
-from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
-import shlex, logging, re, os, sqlite3, smtplib, keyring, shutil
+from time import sleep
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
                     ProgrammingError, OperationalError, NotSupportedError
+import os, logging, re, shlex, shutil, smtplib, sqlite3 
+
+# Third-party Modules #
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.fernet import Fernet
+from filelock import FileLock, Timeout
+import keyring
+
+# Custom Modules #
 import Modules.Globals as Globals
 
 # # Function Index #
 # -------------------
-# - file_handler:   handlers file read / write operations
-# - hd_crawl:       checks user file system for missing component 
-# - key_handler:    deletes existing keys & dbs, calls function to make new components
-# - logger:         encrypted logging system
-# - make_keys:      creates/encrypts keys and dbs, stores hash in application keyring
-# - msg_format:     formats email message headers, data, and attachments
-# - msg_send:       facilitates sending email via TLS connection
-# - print_err:      prints error message the duration of the integer passed in
-# - query_handler:  MySQL database query handling function for creating, populating, and retrieving data from dbs
-# - system_cmd:     executes system shell command
+# - FileHandler:    handlers file read / write operations
+# - HdCrawl:        checks user file system for missing component 
+# - KeyHandler:     deletes existing keys & dbs, calls function to make new components
+# - Logger:         encrypted logging system
+# - MakeKeys:       creates/encrypts keys and dbs, stores hash in application keyring
+# - MsgFormat:      formats email message headers, data, and attachments
+# - MsgSend:        facilitates sending email via TLS connection
+# - PrintErr:       prints er message the duration of the integer passed in
+# - QueryHandler:   Mydatabase query handling function for creating, populating, and retrieving data from dbs
+# - SystemCmd:      executes system shell command
 
 # File operation handler #
-def file_handler(filename, op, password, operation=None, data=None):
+def FileHandler(filename, op, password, operation=None, data=None):
     count = 0
 
     while True:
@@ -40,7 +46,7 @@ def file_handler(filename, op, password, operation=None, data=None):
                 with open(filename, op) as file:
                     # If no operation was specified #
                     if operation == None:
-                        logger('File IO Error: File opertion not specified\n', password, \
+                        Logger('File IO Error: File opertion not specified\n', password, \
                                 operation='write', handler='error')
                         return
 
@@ -52,7 +58,7 @@ def file_handler(filename, op, password, operation=None, data=None):
                     elif operation == 'write':
                         # If no data is present #
                         if data == None:
-                            logger('File IO Error: Empty file buffered detected\n', password, \
+                            Logger('File IO Error: Empty file buffered detected\n', password, \
                                     operation='write', handler='error')
                             return
 
@@ -60,22 +66,22 @@ def file_handler(filename, op, password, operation=None, data=None):
                         
                     # If improper operation specified #
                     else:
-                        logger('File IO Error: Improper file opertion attempted\n', password, \
+                        Logger('File IO Error: Improper file opertion attempted\n', password, \
                                 operation='write', handler='error')
             break
 
         # File error handling #
         except (Timeout, IOError, FileNotFoundError, Exception) as err:
             if count == 4:
-                print_err('\n* [ERROR] Maximum consecutive File Lock/IO errors detected .. check log & contact support *\n', 4)
+                PrintErr('\n* [ERROR] Maximum consecutive File Lock/IO errors detected .. check log & contact support *\n', 4)
                 exit(3)
 
-            logger(f'File Lock/IO Error: {err}\n', password, \
+            Logger(f'File Lock/IO Error: {err}\n', password, \
                     operation='write', handler='error')
-            print_err('\n* [ERROR] File Lock/IO failed .. waiting 5 seconds before attempting again *\n', 2)
+            PrintErr('\n* [ERROR] File Lock/IO failed .. waiting 5 seconds before attempting again *\n', 2)
             count += 1
 
-def hd_crawl(item):
+def HdCrawl(item):
     # Crawl through user directories #
     for dirpath, dirnames, filenames in os.walk('C:\\Users\\', topdown=True):
         for folder in dirnames:
@@ -112,7 +118,7 @@ def hd_crawl(item):
 
 # Delete existing keys, create dbs, and call 
 # function to make a new set of keys #
-def key_handler(dbs, password):
+def KeyHandler(dbs, password):
     # Delete files if they exist #
     for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt', \
     '.\\Keys\\nonce.txt', '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'): 
@@ -121,14 +127,14 @@ def key_handler(dbs, password):
 
     # Create databases #
     for db in dbs:
-        query = Globals.db_create(db)
-        query_handler(db, query, password, create=True)
+        query =  Globals.db_create(db)
+        QueryHandler(db, query, password, create=True)
 
     # Create encryption keys #
-    make_keys(dbs[0], password)
+    MakeKeys(dbs[0], password)
 
 # Encrypted log handler #
-def logger(msg, password, operation=None, handler=None):
+def Logger(msg, password, operation=None, handler=None):
     if Globals.log:
         # Check to see cryptographic components are present #
         key_check, nonce_check, dbKey_check = Globals.file_check('.\\Keys\\aesccm.txt'), \
@@ -137,24 +143,24 @@ def logger(msg, password, operation=None, handler=None):
 
         # If cryptographic component is missing print error & exit function #
         if not key_check or not nonce_check or not dbKey_check:
-            print_err(f'\n* [ERROR] Attempt to access decrypt log missing unlock components logging ..\n{msg} *\n', 2)
+            PrintErr(f'\n* [ERROR] Attempt to access decrypt log missing unlock components logging ..\n{msg} *\n', 2)
             return
 
         # Load AESCCM components #
-        key = file_handler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-        nonce = file_handler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
+        key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
+        nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
         aesccm = AESCCM(key)
 
         # Decrypt the local database key #
-        crypt = file_handler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
+        crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
         db_key = aesccm.decrypt(nonce, crypt, password)
 
         # If data exists in log file #
         if os.stat('cryptLog.log').st_size > 0:
             # Decrypt the cryptLog #
-            crypt = file_handler('cryptLog.log', 'rb', password, operation='read')
+            crypt = FileHandler('cryptLog.log', 'rb', password, operation='read')
             plain = Fernet(db_key).decrypt(crypt)
-            file_handler('cryptLog.log', 'wb', password, operation='write', data=plain)
+            FileHandler('cryptLog.log', 'wb', password, operation='write', data=plain)
 
         # If writing to the log #
         if operation == 'write':
@@ -169,7 +175,7 @@ def logger(msg, password, operation=None, handler=None):
                     else:
                         logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
             except Timeout:
-                print_err('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
+                PrintErr('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
 
         # If reading the log #
         elif operation == 'read':
@@ -194,21 +200,21 @@ def logger(msg, password, operation=None, handler=None):
                 with FileLock('cryptLog.log.lock', timeout=30):
                     logging.error('No logging operation specified')
             except Timeout:
-                print_err('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
+                PrintErr('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
 
         # If no data in log .. exit function #
         if os.stat('cryptLog.log').st_size == 0:
             return
 
         # Encrypt the cryptLog #
-        plain = file_handler('cryptLog.log', 'rb', password, operation='read')
+        plain = FileHandler('cryptLog.log', 'rb', password, operation='read')
         crypt = Fernet(db_key).encrypt(plain)
-        file_handler('cryptLog.log', 'wb', password, operation='write', data=crypt)
+        FileHandler('cryptLog.log', 'wb', password, operation='write', data=crypt)
     else:
-        print_err(f'\n* [ERROR] Exception occured on startup script: {msg} *\n', 2)
+        PrintErr(f'\n* [ERROR] Exception occured on startup script: {msg} *\n', 2)
 
 # Make cryptographic key-set #
-def make_keys(db, password):
+def MakeKeys(db, password):
     # Fernet Symmetric HMAC key for dbs #
     db_key = Fernet.generate_key()
 
@@ -221,12 +227,12 @@ def make_keys(db, password):
     cha_nonce = Fernet(db_key).encrypt(cha_nonce)
 
     # Send encrypted ChaCha20 key to keys database #
-    query = Globals.db_insert(db, 'upload_key', upload_key.decode('utf-8'))
-    query_handler(db, query, password)
+    query =  Globals.db_insert(db, 'upload_key', upload_key.decode('utf-8'))
+    QueryHandler(db, query, password)
 
     # Send encrypted ChaCha20 nonce to keys database # 
-    query = Globals.db_insert(db, 'upload_nonce', cha_nonce.decode('utf-8'))
-    query_handler(db, query, password)
+    query =  Globals.db_insert(db, 'upload_nonce', cha_nonce.decode('utf-8'))
+    QueryHandler(db, query, password)
 
     # AESCCM password authenticated key #
     key = AESCCM.generate_key(bit_length=256)
@@ -235,17 +241,17 @@ def make_keys(db, password):
 
     # Encrypt the db fernet key with AESCCM password key & write to file #
     crypt = aesccm.encrypt(nonce, db_key, password)
-    file_handler('.\\Keys\\db_crypt.txt', 'wb', password, operation='write', data=crypt)
+    FileHandler('.\\Keys\\db_crypt.txt', 'wb', password, operation='write', data=crypt)
 
     # Add password hash to key ring #
     keyring.set_password('CryptDrive', 'CryptUser', password.decode('utf-8'))
 
     # Write AESCCM key and nonce to files #     
-    file_handler('.\\Keys\\aesccm.txt', 'wb', password, operation='write', data=key)
-    file_handler('.\\Keys\\nonce.txt', 'wb', password, operation='write', data=nonce)
+    FileHandler('.\\Keys\\aesccm.txt', 'wb', password, operation='write', data=key)
+    FileHandler('.\\Keys\\nonce.txt', 'wb', password, operation='write', data=nonce)
 
 # Format email message #
-def msg_format(send_email, receiver, body, files):
+def MsgFormat(send_email, receiver, body, files):
     # Initial message object & format headers/body #
     msg = MIMEMultipart()
     msg['From'] = send_email
@@ -271,7 +277,7 @@ def msg_format(send_email, receiver, body, files):
     return msg
 
 # Facilitate sending email #
-def msg_send(send_email, receiver, password, msg):
+def MsgSend(send_email, receiver, password, msg):
     # Initialize SMTP session with gmail server #
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as session:
@@ -282,17 +288,17 @@ def msg_send(send_email, receiver, password, msg):
             # Disconnect session #
             session.quit()
     except smtplib.SMTPException as err:
-        print_err('\n* [ERROR] Remote email server connection failed *\n', 2)
-        logger(f'SMTP Error: {err}', password, \
+        PrintErr('\n* [ERROR] Remote email server connection failed *\n', 2)
+        Logger(f'SMTP Error: {err}', password, \
                 operation='write', handler='error')
 
 # Timed error message #
-def print_err(msg, seconds):
+def PrintErr(msg, seconds):
     print(msg, file=stderr)
     sleep(seconds)
 
 # MySQL database query handler #
-def query_handler(db, query, password, create=False, fetchone=False):
+def QueryHandler(db, query, password, create=False, fetchone=False):
     os.chdir('.\\Dbs')
     maxConns = 1
     # Locks allowed connections to database #
@@ -325,15 +331,15 @@ def query_handler(db, query, password, create=False, fetchone=False):
         # Database query error handling #
         except (Warning, Error, DatabaseError, IntegrityError, \
         ProgrammingError, OperationalError, NotSupportedError) as err:
-            print_err('\n* [ERROR] Database error occured *\n', 2)
-            logger(f'SQL error: {err}\n', password, \
+            PrintErr('\n* [ERROR] Database error occured *\n', 2)
+            Logger(f'SQL error: {err}\n', password, \
                     operation='write', handler='error')
 
         conn.close()
         os.chdir('.\\..')
 
 # Run system command #
-def system_cmd(cmd, stdout, stderr, exec_time):
+def SystemCmd(cmd, stdout, stderr, exec_time):
     exe = shlex.quote(cmd)
     try:
         command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
