@@ -1,11 +1,12 @@
-# Built-in modules #
+# Built-in Modules #
 from base64 import b64encode
 from getpass import getpass
 from time import sleep
 import ctypes, logging, os, re, shutil
 
-# Third-party modules #
+# Third-party Modules #
 from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -13,7 +14,7 @@ from filelock import FileLock, Timeout
 from pyfiglet import Figlet
 import keyring, winshell
 
-# Custom modules #
+# Custom Modules #
 import Modules.Globals as Globals
 from Modules.MenuFunctions import *
 from Modules.Utils import FileHandler, HdCrawl, KeyHandler, Logger, \
@@ -27,10 +28,10 @@ from Modules.Utils import FileHandler, HdCrawl, KeyHandler, Logger, \
 # - PasswordInput:      password hashing function to verify hash in keyring or create new password hash
 
 # Main menu with command options #
-def MainMenu(dbs, password, cmds):
+def MainMenu(dbs, password, cmds, abs_path):
     # Compile regex patterns #
-    re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9\_\"\' \.\,\-]{1,30})+')
-    re_email = re.compile(r'.+?@[a-zA-Z0-9\_]{4,20}\.[a-z]{2,4}$')
+    re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9\_\"\' \.\,\-]{1,60})+')
+    re_email = re.compile(r'.+?@[a-zA-Z0-9\_\.]{4,20}\.[a-z]{2,4}$')
     re_user = re.compile(r'^[a-zA-Z0-9\_]{1,30}')
     re_pass = re.compile(r'^[a-zA-Z0-9\_!+$@&(]{10,30}')
     re_phone = re.compile(r'^[0-9]{10}')
@@ -43,44 +44,87 @@ def MainMenu(dbs, password, cmds):
         print('''
     @===============@
     |   Commands   |
-    #=======================#-------\\
-    |   u  =>  upload to drive       \\
-    |   l  =>  list drive contents   |
-    |   i  =>  import key            |
-    |   d  =>  decrypt data          |
-    |   s  =>  share decrypt keys    |
-    |   e  =>  exit utility          |
-    |   v  ->  view error log        |
-    @================================@
+    #=========================#-----------\\
+    |   upload  =>  upload to drive        \\
+    |   store   =>  store in storage db     |
+    |   extract =>  extract from storage db |
+    |   ldrive  =>  list drive contents     |
+    |   lstore  =>  list storage db data    |
+    |   import  =>  import key              |
+    |   decrypt =>  decrypt data            |
+    |   share   =>  share decrypt keys      |
+    |   exit    =>  exit utility            |
+    |   view    =>  view error log          |
+    @=======================================@
     \n''')
         prompt = input('$#==+> ')
 
         # Upload encrypted data #
-        if prompt == 'u':
+        if prompt == 'upload':
             while True:
-                local_path = input('\nSpecify path to folder C:\\like\\this or enter for UploadDock:\n')
-                if re.search(re_path, local_path) == False:
-                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
+                local_path = input('\nSpecify path to folder C:\\like\\this for upload, \"Storage\" for '
+                                   'contents from storage database or enter for UploadDock:\n')
+                if not re.search(re_path, local_path) and local_path != 'Storage' and  local_path != '':
+                    PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
+                    continue
+
+                break
+
+            # If user hit enter #
+            if local_path == '':
+                local_path = '.\\UploadDock'
+            # If user entered Storage #
+            elif local_path == 'Storage':
+                local_path = None
+
+            Upload(dbs, cmds[0], password, local_path, abs_path)
+
+        # Store data in storage database #
+        elif prompt == 'store':
+            while True:
+                local_path = input('\nSpecify path to folder C:\\like\\this for database storage or enter for Import:\n')
+                if not re.search(re_path, local_path) and local_path != '':
+                    PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
                     continue
 
                 break
 
             if local_path == '':
-                local_path == '.\\UploadDock'
+                local_path = abs_path + '\\Import'
 
-            Upload(dbs[0], cmds[0], password, local_path)
+            DbStore(dbs, cmds[0], password, local_path)
+
+        # Extract data from storage db #
+        elif prompt == 'extract':
+            while True:
+                folder = input('Enter folder name to be recursively exported from the database: ')
+                local_path = input('\nSpecify path to folder C:\\like\\this to export to or enter export in Documents\n')
+                if not re.search(re_path, local_path) and local_path != '' or not re.search(r'^[a-zA-Z0-9\.\_]+', folder):
+                    PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
+                    continue
+
+                break
+
+            if local_path == '':
+                local_path = None
+
+            DbExtract(dbs, cmds[0], password, folder, local_path)
 
         # List cloud contents #
-        elif prompt == 'l':
+        elif prompt == 'ldrive':
             ListDrive()
 
+        # List storage database contents #
+        elif prompt == 'lstore':
+            ListStorage(dbs, password)
+
         # Import public key #
-        elif prompt == 'i':
+        elif prompt == 'import':
             while True:
                 username = input('Enter username for key to be imported: ')
                 import_pass = input('Enter user decryption password in text message: ')
-                if re.search(re_user, username) == False or re.search(re_pass, import_pass) == False:
-                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
+                if not re.search(re_user, username) or not re.search(re_pass, import_pass):
+                    PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
                     continue
                
                 break
@@ -88,19 +132,24 @@ def MainMenu(dbs, password, cmds):
             ImportKey(dbs[0], password, username, import_pass)
 
         # Decrypt data in DecryptDock
-        elif prompt == 'd':
+        elif prompt == 'decrypt':
             while True: 
                 username = input('Enter username of data to decrypt or hit enter for your own data: ')
-                if re.search(re_user, username) == False and username != '':
-                    PrintErr('\n* [ERROR] Improper format .. try again *', 2)
+                local_path = input('\nSpecify path to folder C:\\like\\this to export to or enter export in Documents\n')
+                if not re.search(re_user, username) and username != '' or \
+                not re.search(re_path, local_path) and local_path != '':
+                    PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
                     continue
 
                 break
 
-            Decryption(dbs[0], cmds[0], username, password)
+                if local_path == '':
+                    local_path = '.\\DecryptDock'
+
+            Decryption(dbs[0], cmds[0], username, password, local_path)
 
         # Share private key with user #
-        elif prompt == 's':
+        elif prompt == 'share':
             while True:
                 send_email = input('Enter your gmail email address: ')
                 email_pass = getpass('Enter gmail account password: ')
@@ -109,14 +158,14 @@ def MainMenu(dbs, password, cmds):
                 recv_phone = input('Enter receivers phone number (no hyphens): ')
                 carrier = input('Select your phone provider (verison, sprint, at&t, t-mobile, virgin, boost, us-cellular): ')
 
-                if re.search(re_email, send_email) == False or re.search(re_pass, email_pass) == False \
-                or re.search(re_email, recv_email) == False or re.search(re_email, recv_email2) == False \
-                or re.search(re_phone, recv_phone) == False:
+                if not re.search(re_email, send_email) or not re.search(re_pass, email_pass) \
+                or not re.search(re_email, recv_email) or not re.search(re_email, recv_email2) \
+                or not re.search(re_phone, recv_phone):
                     PrintErr('\n* [ERROR] One of the inputs provided were improper .. try again *\n', 2)
                     continue
 
                 if carrier not in ('verison', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost', 'us-cellular'):
-                    PrintErr('\n* [ERROR] improper provider selection made *', 2)
+                    PrintErr('\n* [ERROR] improper provider selection made *\n', 2)
                     continue
                 else:
                     if carrier == 'verison':
@@ -140,18 +189,17 @@ def MainMenu(dbs, password, cmds):
             ShareKey(dbs[0], password, send_email, email_pass, receivers, re_pass)
 
         # Exit the program #
-        elif prompt == 'e':
+        elif prompt == 'exit':
             print('\nExiting Utility ..')
             sleep(2)
             exit(0)
 
-        elif prompt == 'v':
+        elif prompt == 'view':
             Logger(None, password, operation='read', handler=None)
 
         # Improper input handling #
         else:
             print('\n* [ERROR] Improper Input .. try again *')
-
 
         sleep(2.5)
  
@@ -172,21 +220,21 @@ def DbCheck(dbs, password):
         exit(2)
 
     # Retrieve upload key from database #
-    query = Globals.db_retrieve(dbs[0], 'upload_key')
+    query = Globals.DB_RETRIEVE(dbs[0], 'upload_key')
     upload_call = QueryHandler(dbs[0], query, password, fetchone=True)
 
     # Retrieve nonce from database #
-    query = Globals.db_retrieve(dbs[0], 'upload_nonce')
+    query = Globals.DB_RETRIEVE(dbs[0], 'upload_nonce')
     nonce_call = QueryHandler(dbs[0], query, password, fetchone=True)
 
     # If the upload key call fails #
     if not upload_call or not nonce_call:
         PrintErr('\n* [ERROR] Database missing upload component .. creating new key & upload to db *\n'
                   'Data will need to be re uploaded with new key otherwise decryption will fail\n', 2)
-        Logger('Upload component missing .. new key created, data needs to be re-uploaded', password, \
+        Logger('Upload component missing .. new key created, data needs to be re-uploaded', password,
                operation='write', handler='exception')
 
-        if upload_call == None:
+        if not upload_call:
             # Create new upload key #
             upload_key = b64encode(os.urandom(32))
 
@@ -194,10 +242,10 @@ def DbCheck(dbs, password):
             crypt_key = Fernet(db_key).encrypt(upload_key)
 
             # Send upload key to keys database #
-            query = Globals.db_insert(dbs[0], 'upload_key', crypt_key.decode('utf-8'))
+            query = Globals.DB_INSERT(dbs[0], 'upload_key', crypt_key.decode('utf-8'))
             QueryHandler(dbs[0], query, password)
         
-        if nonce_call == None:
+        if not nonce_call:
             # Create new upload nonce #
             nonce = b64encode(os.urandom(16))    
 
@@ -205,7 +253,7 @@ def DbCheck(dbs, password):
             crypt_nonce = Fernet(db_key).encrypt(nonce)
 
             # Send nonce to keys database #
-            query = Globals.db_insert(dbs[0], 'upload_nonce', crypt_nonce.decode('utf-8'))
+            query = Globals.DB_INSERT(dbs[0], 'upload_nonce', crypt_nonce.decode('utf-8'))
             QueryHandler(dbs[0], query, password)
     else:
         # Confirm upload key works with fernet #
@@ -216,7 +264,7 @@ def DbCheck(dbs, password):
 
 # Startup script checks if any directorys, keys, & files
 # associated with program are missing; fixes detected issues #
-def StartCheck(dbs, password):
+def StartCheck(dbs, password, abs_path):
     global log
 
     failures = []
@@ -229,12 +277,12 @@ def StartCheck(dbs, password):
         # If current item is a folder #
         if item in ('.\\Dbs', '.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock'):
             # If folder exists #
-            if Globals.dir_check(item):
+            if Globals.DIR_CHECK(item):
                 continue
 
         else:
             # If current item is a file #
-            if Globals.file_check(item):
+            if Globals.FILE_CHECK(item):
                 # If the file is not empty #
                 if os.stat(item).st_size > 0:
                     # If the curent item is the keys db #
@@ -244,11 +292,13 @@ def StartCheck(dbs, password):
 
                     continue
 
-                # Delete empty file #
-                os.remove(item)
-                # Add item to failures list #
-                failures.append(item)
-                continue
+                # If file is empty #
+                else:
+                    # Delete empty file #
+                    os.remove(item)
+                    # Add item to failures list #
+                    failures.append(item)
+                    continue
 
         # If item is file #
         if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
@@ -258,10 +308,8 @@ def StartCheck(dbs, password):
         else:
             re_item = re.search(r'(?<=\.)[a-zA-Z\_\\]+(?=$)', item)
 
-        # Get absolute path to file of execution thread #
-        item_path = os.path.dirname(os.path.abspath(__file__))
         # Append item path to program root dir #
-        parse = item_path + re_item.group(0)
+        parse = abs_path + re_item.group(0)
         try:
             # Check recycling bin for item #
             winshell.undelete(parse)
@@ -272,13 +320,16 @@ def StartCheck(dbs, password):
             # If item is a database #
             elif item in ('.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
                 os.rename(parse, parse + '.db')
+            else:
+                continue
 
             print(f'{item} was found in recycling bin')
+        # If attempt to recover component from recycling bin fails #
         except:
             PrintErr(f'\n* {item} not found in recycling bin .. checking user storage *\n', 0.01)
 
             # If file is file #
-            if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt', \
+            if item in ('.\\Keys\\aesccm.txt', '.\\Keys\\db_crypt.txt', '.\\Keys\\nonce.txt',
             '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
                 re_item = re.search(r'(?<=[a-zA-Z]\\)[a-zA-Z\_\\]+(?=\.)', item)
             # If file is folder #
@@ -299,7 +350,7 @@ def StartCheck(dbs, password):
         sleep(2)
 
     # Enable logging to file #
-    Globals.log = True
+    Globals.LOG = True
 
     # If a component could not be recovered #
     if failures:
@@ -309,7 +360,7 @@ def StartCheck(dbs, password):
             if fail in ('.\\DecryptDock', '.\\Import', \
             '.\\UploadDock', '.\\Dbs\\storage.db' ):
                 # If fail item is folder #
-                if Globals.dir_check(fail):
+                if Globals.DIR_CHECK(fail):
                     # Create folder #
                     os.mkdir(fail)
                 # If fail item is file #
@@ -317,7 +368,7 @@ def StartCheck(dbs, password):
                     # # If fail item is stoage db #
                     if fail == '.\\Dbs\\storage.db':
                         # Create storage database #
-                        query = Globals.db_create(dbs[1])
+                        query = Globals.DB_STORAGE(dbs[1])
                         QueryHandler(dbs[1], query, password, create=True)
                     else:
                         # Re-create entire key/db components #
@@ -334,9 +385,9 @@ def PasswordInput(cmds, test):
     # Initialize password hashing algorithm #
     pass_algo = PasswordHasher()
 
-    key_check, nonce_check = Globals.file_check('.\\Keys\\aesccm.txt'), Globals.file_check('.\\Keys\\nonce.txt')
-    dbKey_check, DbCheck = Globals.file_check('.\\Keys\\db_crypt.txt'), Globals.file_check('.\\Dbs\\keys.db')
-    storage_check = Globals.file_check('.\\Dbs\\storage.db')
+    key_check, nonce_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt'), Globals.FILE_CHECK('.\\Keys\\nonce.txt')
+    dbKey_check, DbCheck = Globals.FILE_CHECK('.\\Keys\\db_crypt.txt'), Globals.FILE_CHECK('.\\Dbs\\keys.db')
+    storage_check = Globals.FILE_CHECK('.\\Dbs\\storage.db')
 
     # If all major components missing avoid StartCheck script #
     if not key_check and not nonce_check and not dbKey_check \
@@ -347,7 +398,7 @@ def PasswordInput(cmds, test):
         # Clear display #
         SystemCmd(cmds[0], None, None, 2)
         
-        # If user maxed attempts #
+        # If user maxed attempts (3 sets of password fails) #
         if count == 12:
             # Code can be added to notify administrator or 
             # raise an alert to remote system # 
@@ -364,9 +415,12 @@ def PasswordInput(cmds, test):
                 sleep(1)
 
         # Prompt user for input #
-        prompt = getpass('\nEnter your unlock password or password for creating keys: ')
-        if re.search(r'^[a-zA-Z0-9_!+$@&(]{12,30}', prompt) == None:
-            PrintErr('\n* [ERROR] Invalid password format .. numbers, letters & _+$@&( special charaters allowed *', 2)
+        prompt = getpass('\n\nEnter your unlock password or password for creating keys: ')
+
+        # Check input syntax & length #
+        if not re.search(r'^[a-zA-Z0-9_!+$@&(]{12,30}', prompt):
+            PrintErr('\n* [ERROR] Invalid password format .. numbers, letters, &'
+                     ' _+$@&( special charaters allowed *', 2)
             count += 1
             continue
 
@@ -375,14 +429,17 @@ def PasswordInput(cmds, test):
             # Attempt to retrieve password hash from key ring #
             try:
                 keyring_hash = keyring.get_password('CryptDrive', 'CryptUser')
+            # If credential manager is missing password hash #
             except keyring.errors.KeyringError:
+                # Print error & return hashed input #
                 PrintErr('\n* [ERROR] Attempted access to key that does not exist .. *', 2.5)
-                return
+                return pass_algo.hash(prompt).encode(), test
 
             # Verify input by comparing keyring hash against algo #
-            check = pass_algo.verify(keyring_hash, prompt)
-            if check == False:
-                PrintErr('\n* [ERROR] Improper input provided *', 2)
+            try:
+                check = pass_algo.verify(keyring_hash, prompt)
+            except VerifyMismatchError:
+                PrintErr('\n* [ERROR] Input does not match password hash *', 2)
                 count += 1
                 continue
 
@@ -390,6 +447,21 @@ def PasswordInput(cmds, test):
                 # Return hash stored in keyring #
                 return keyring_hash.encode(), test
         else:
+            # Confirm users password before setting #
+            prompt2 = getpass('Enter password again to confirm: ')
+
+            if not re.search(r'^[a-zA-Z0-9_!+$@&(]{12,30}', prompt2):
+                PrintErr('\n* [ERROR] Invalid password format .. numbers, letters, &'
+                         ' _+$@&( special charaters allowed *', 2)
+                count += 1
+                continue                
+
+            # Confirm the same password was entered twice #
+            if prompt != prompt2:
+                PrintErr('\n* [ERROR] Two different passwords were entered .. try again *', 2)
+                count += 1
+                continue
+
             # Return hashed input #
             return pass_algo.hash(prompt).encode(), test
 
@@ -397,7 +469,7 @@ def PasswordInput(cmds, test):
 if __name__ == '__main__':
     try:
         # Initalize global lambda variables #
-        Globals.initialize()
+        Globals.Initialize()
         # Commands tuple #
         cmds = ('cls',)
 
@@ -411,23 +483,26 @@ if __name__ == '__main__':
         dbs = ('keys', 'storage')
 
         # Initialize logging facilities #
-        logging.basicConfig(level=logging.ERROR, filename='cryptLog.log', format='%(asctime)s %(levelname)s:%(message)s')
+        logging.basicConfig(level=logging.ERROR, stream=Globals.LOG_STREAM,
+                            format='%(asctime)s %(levelname)s:%(message)s')
+
+        # Get absolute path to file of execution thread #
+        abs_path = os.path.dirname(os.path.abspath(__file__))
 
         if test:
             # Start up script for checking
             # critical operation components #
-            StartCheck(dbs, password)
+            StartCheck(dbs, password, abs_path)
         else:
             # Create folders #
-                try:
-                    [ os.mkdir(folder) for folder in ('.\\Dbs' ,'.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock') ]
-                except FileExistsError:
-                    pass
+            for folder in ('.\\Dbs' ,'.\\DecryptDock', '.\\Import', '.\\Keys', '.\\UploadDock'):
+                if not Globals.DIR_CHECK(folder):
+                    os.mkdir(folder)
 
             # Make new key/db setup #
             KeyHandler(dbs, password)
             # Enable logging to file #
-            Globals.log = True
+            Globals.LOG = True
 
     except KeyboardInterrupt:
         PrintErr('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
@@ -436,13 +511,12 @@ if __name__ == '__main__':
     # Main menu exception handled loop #
     while True:
         try:
-            MainMenu(dbs, password, cmds)
+            MainMenu(dbs, password, cmds, abs_path)
 
         except Exception as err:
             PrintErr('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
-            Logger(f'Exception occured: {err}\n', password, \
-                    operation='write', handler='exception')
-            continue
-        except KeyboardInterrupt:
-            PrintErr('\n* [EXIT] Ctrl + c detected .. exiting *', 2)
-            break
+            Logger(f'Exception occured: {err}\n', password, operation='write', handler='exception')
+        #     continue
+        # except KeyboardInterrupt:
+        #     PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
+        #     break

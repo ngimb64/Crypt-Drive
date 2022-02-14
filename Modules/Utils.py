@@ -10,12 +10,11 @@ from threading import BoundedSemaphore
 from time import sleep
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
                     ProgrammingError, OperationalError, NotSupportedError
-import os, logging, re, shlex, shutil, smtplib, sqlite3 
+import os, logging, re, shlex, shutil, smtplib, sqlite3
 
 # Third-party Modules #
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from cryptography.fernet import Fernet
-from filelock import FileLock, Timeout
 import keyring
 
 # Custom Modules #
@@ -40,13 +39,13 @@ def FileHandler(filename, op, password, operation=None, data=None):
 
     while True:
         try:
-            # Set file lock #
-            with FileLock(filename + '.lock', timeout=3):
+            # If the file exists and is permitted access #
+            if Globals.FILE_CHECK(filename) and os.access(filename, os.R_OK):
                 # Open file #
                 with open(filename, op) as file:
                     # If no operation was specified #
                     if operation == None:
-                        Logger('File IO Error: File opertion not specified\n', password, \
+                        Logger('File IO Error: File opertion not specified\n', password,
                                 operation='write', handler='error')
                         return
 
@@ -58,7 +57,7 @@ def FileHandler(filename, op, password, operation=None, data=None):
                     elif operation == 'write':
                         # If no data is present #
                         if data == None:
-                            Logger('File IO Error: Empty file buffered detected\n', password, \
+                            Logger('File IO Error: Empty file buffered detected\n', password,
                                     operation='write', handler='error')
                             return
 
@@ -66,52 +65,63 @@ def FileHandler(filename, op, password, operation=None, data=None):
                         
                     # If improper operation specified #
                     else:
-                        Logger('File IO Error: Improper file opertion attempted\n', password, \
+                        Logger('File IO Error: Improper file opertion attempted\n', password,
                                 operation='write', handler='error')
             break
 
         # File error handling #
-        except (Timeout, IOError, FileNotFoundError, Exception) as err:
-            if count == 4:
-                PrintErr('\n* [ERROR] Maximum consecutive File Lock/IO errors detected .. check log & contact support *\n', 4)
+        except (IOError, FileNotFoundError, Exception) as err:
+            if count == 3:
+                PrintErr('\n* [ERROR] Maximum consecutive File IO errors'
+                         ' detected .. check log & contact support *\n', 4)
                 exit(3)
 
-            Logger(f'File Lock/IO Error: {err}\n', password, \
-                    operation='write', handler='error')
-            PrintErr('\n* [ERROR] File Lock/IO failed .. waiting 5 seconds before attempting again *\n', 2)
+            Logger(f'File IO Error: {err}\n', password, operation='write', handler='error')
+            PrintErr('\n* [ERROR] File Lock/IO failed .. waiting 5'
+                     ' seconds before attempting again *\n', 2)
             count += 1
 
+# Recursive hardrive crawl data recovery mechanism #
 def HdCrawl(item):
     # Crawl through user directories #
     for dirpath, dirnames, filenames in os.walk('C:\\Users\\', topdown=True):
         for folder in dirnames:
             if folder == item == 'Dbs':
                 shutil.move(dirpath + '\\' + folder, '.\\Dbs')
+                print(f'Folder: {item} recovered')
                 return True
+
             elif folder == item == 'DecryptDock':
                 shutil.move(dirpath + '\\' + folder, '.\\DecryptDock')
+                print(f'Folder: {item} recovered')
                 return True
+
             elif folder == item == 'Import':
                 shutil.move(dirpath + '\\' + folder, '.\\Import')
+                print(f'Folder: {item} recovered')
                 return True
+
             elif folder == item == 'Keys':
                 shutil.move(dirpath + '\\' + folder, '.\\Keys')
+                print(f'Folder: {item} recovered')
                 return True
+
             elif folder == item == 'UploadDock':
                 shutil.move(dirpath + '\\' + folder, '.\\UploadDock')
+                print(f'Folder: {item} recovered')
                 return True
 
         for file in filenames:
             # If item matches .txt, move to Keys dir #
             if file == (item + '.txt'):
                 shutil.move(dirpath + '\\' + file, '.\\Keys\\' + file)
-                print(f'{item}.txt recovered')
+                print(f'File: {item}.txt recovered')
                 return True
 
             # If item matches .db, move to DBs dir #
             elif file == (item + '.db'):
                 shutil.move(dirpath + '\\' + file, '.\\Dbs\\' + file)
-                print(f'{item}.db recovered')
+                print(f'File: {item}.db recovered')
                 return True
 
     return False
@@ -120,14 +130,20 @@ def HdCrawl(item):
 # function to make a new set of keys #
 def KeyHandler(dbs, password):
     # Delete files if they exist #
-    for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt', \
+    for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt',
     '.\\Keys\\nonce.txt', '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'): 
-        if Globals.file_check(file) == True:
+        if Globals.FILE_CHECK(file) == True:
             os.remove(file)
 
     # Create databases #
     for db in dbs:
-        query =  Globals.db_create(db)
+        if db == 'keys':
+            query = Globals.DB_KEYS(db)
+        elif db == 'storage':
+            query = Globals.DB_STORAGE(db)
+        else:
+            pass
+
         QueryHandler(db, query, password, create=True)
 
     # Create encryption keys #
@@ -135,15 +151,18 @@ def KeyHandler(dbs, password):
 
 # Encrypted log handler #
 def Logger(msg, password, operation=None, handler=None):
-    if Globals.log:
+    if Globals.LOG:
+        log_name = '.\\cryptLog.log'
+
         # Check to see cryptographic components are present #
-        key_check, nonce_check, dbKey_check = Globals.file_check('.\\Keys\\aesccm.txt'), \
-                                              Globals.file_check('.\\Keys\\nonce.txt'), \
-                                              Globals.file_check('.\\Keys\\db_crypt.txt')
+        key_check, nonce_check, dbKey_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt'), \
+                                              Globals.FILE_CHECK('.\\Keys\\nonce.txt'), \
+                                              Globals.FILE_CHECK('.\\Keys\\db_crypt.txt')
 
         # If cryptographic component is missing print error & exit function #
         if not key_check or not nonce_check or not dbKey_check:
-            PrintErr(f'\n* [ERROR] Attempt to access decrypt log missing unlock components logging ..\n{msg} *\n', 2)
+            PrintErr('\n* [ERROR] Attempt to access decrypt log missing'
+                     f' unlock components logging ..\n{msg} *\n', 2)
             return
 
         # Load AESCCM components #
@@ -154,62 +173,100 @@ def Logger(msg, password, operation=None, handler=None):
         # Decrypt the local database key #
         crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
         db_key = aesccm.decrypt(nonce, crypt, password)
-
+                    
         # If data exists in log file #
-        if os.stat('cryptLog.log').st_size > 0:
-            # Decrypt the cryptLog #
-            crypt = FileHandler('cryptLog.log', 'rb', password, operation='read')
-            plain = Fernet(db_key).decrypt(crypt)
-            FileHandler('cryptLog.log', 'wb', password, operation='write', data=plain)
+        if Globals.FILE_CHECK(log_name):
+            # Get log file size in bytes #
+            log_size = os.stat(log_name).st_size
+
+            # If log has data in it #
+            if log_size > 0:
+                # Decrypt the cryptLog #
+                crypt = FileHandler(log_name, 'rb', password, operation='read')
+                plain = Fernet(db_key).decrypt(crypt)
+                text = plain.decode()
+        else:
+            # Set artificially low value #
+            log_size = -1
 
         # If writing to the log #
         if operation == 'write':
+            # If writing error #
+            if handler == 'error':
+                logging.error(msg)
+            # If writing exception #
+            elif handler == 'exception':
+                logging.exception(msg)
+            else:
+                logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
+            
+            # Get log message in variable #
+            log_msg = Globals.LOG_STREAM.getvalue()
+
             try:
-                with FileLock('cryptLog.log.lock', timeout=3):
-                    # If writing error #
-                    if handler == 'error':
-                        logging.error(msg)
-                    # If writing exception #
-                    elif handler == 'exception':
-                        logging.exception(msg)
-                    else:
-                        logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
-            except Timeout:
-                PrintErr('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
+                # If the file exists and is permitted access #
+                if Globals.FILE_CHECK(log_name) and os.access(log_name, os.R_OK):
+                    with open(log_name, 'wb') as file:
+                        # If log has data & is less than the 25 mb max size #
+                        if 0 < log_size < 26214400:
+                            # Append new log message to existing log #
+                            log_parse = text + '\n' + log_msg
+                            # Encrypt log data & store on file #
+                            crypt = Fernet(db_key).encrypt(log_parse.encode())
+                            file.write(crypt)
+                        else:
+                            # Encrypt log data & store on file #
+                            crypt = Fernet(db_key).encrypt(log_msg.encode())
+                            file.write(crypt)
+
+            except (IOError, FileNotFoundError, Exception):
+                PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
 
         # If reading the log #
         elif operation == 'read':
-            # If no data to read .. exit function #        
-            if os.stat('cryptLog.log').st_size == 0:
-                return
-            else:
-                count = 0
+            # If log file exists
+            if Globals.FILE_CHECK(log_name):     
+                # If log file is empty .. return function #
+                if log_size == 0:
+                    return
+                else:
+                    count = 0
 
-                # Print log page by page #
-                for line in plain.split('\n'):
-                    if count == 60:
-                        input('Hit enter to continue')
-                        count = 0
+                    # Print log page by page #
+                    for line in text.split('\n'):
+                        if count == 60:
+                            input('Hit enter to continue ')
+                            count = 0
 
-                    print(line)
-                    count += 1
+                        print(line)
+                        count += 1
 
-                input('Hit enter to continue')
+                    input('Hit enter to continue ')
+
+        # If operation not specified #
         else:
+            logging.error('No logging operation specified')
+
+            # Get log message in variable #
+            log_msg = Globals.LOG_STREAM.getvalue()
             try:
-                with FileLock('cryptLog.log.lock', timeout=30):
-                    logging.error('No logging operation specified')
-            except Timeout:
-                PrintErr('\n* [ERROR] CryptLog failed to obtain file lock *\n', 2)
+                # If the file exists and is permitted access #
+                if Globals.FILE_CHECK(filename) and os.access(filename, os.R_OK):
+                    with open(log_name, 'wb') as file:
+                        # If log has data & is less than the 25 mb max size #
+                        if 0 < log_size < 26214400:
+                            # Append new log message to existing log #
+                            log_parse = text + '\n' + log_msg
+                            # Encrypt log data & store on file #
+                            crypt = Fernet(db_key).encrypt(log_parse.encode())
+                            file.write(crypt)
+                        else:
+                            # Encrypt log data & store on file #
+                            crypt = Fernet(db_key).encrypt(log_msg.encode())
+                            file.write(crypt)
 
-        # If no data in log .. exit function #
-        if os.stat('cryptLog.log').st_size == 0:
-            return
-
-        # Encrypt the cryptLog #
-        plain = FileHandler('cryptLog.log', 'rb', password, operation='read')
-        crypt = Fernet(db_key).encrypt(plain)
-        FileHandler('cryptLog.log', 'wb', password, operation='write', data=crypt)
+            except (IOError, FileNotFoundError, Exception):
+                PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
     else:
         PrintErr(f'\n* [ERROR] Exception occured on startup script: {msg} *\n', 2)
 
@@ -227,11 +284,11 @@ def MakeKeys(db, password):
     cha_nonce = Fernet(db_key).encrypt(cha_nonce)
 
     # Send encrypted ChaCha20 key to keys database #
-    query =  Globals.db_insert(db, 'upload_key', upload_key.decode('utf-8'))
+    query =  Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
     QueryHandler(db, query, password)
 
     # Send encrypted ChaCha20 nonce to keys database # 
-    query =  Globals.db_insert(db, 'upload_nonce', cha_nonce.decode('utf-8'))
+    query =  Globals.DB_INSERT(db, 'upload_nonce', cha_nonce.decode('utf-8'))
     QueryHandler(db, query, password)
 
     # AESCCM password authenticated key #
@@ -261,7 +318,8 @@ def MsgFormat(send_email, receiver, body, files):
 
     # Iterate through msg files #
     for file in files:
-        if file == None:
+        # If there are no more files #
+        if not file:
             return msg
 
         # Initalize stream to attach data #
@@ -289,8 +347,7 @@ def MsgSend(send_email, receiver, password, msg):
             session.quit()
     except smtplib.SMTPException as err:
         PrintErr('\n* [ERROR] Remote email server connection failed *\n', 2)
-        Logger(f'SMTP Error: {err}', password, \
-                operation='write', handler='error')
+        Logger(f'SMTP Error: {err}', password, operation='write', handler='error')
 
 # Timed error message #
 def PrintErr(msg, seconds):
@@ -298,8 +355,10 @@ def PrintErr(msg, seconds):
     sleep(seconds)
 
 # MySQL database query handler #
-def QueryHandler(db, query, password, create=False, fetchone=False):
+def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=False):
+    # Change directory #
     os.chdir('.\\Dbs')
+    # Sets maximum number of allowed db connections #
     maxConns = 1
     # Locks allowed connections to database #
     sema_lock = BoundedSemaphore(value=maxConns)
@@ -307,43 +366,74 @@ def QueryHandler(db, query, password, create=False, fetchone=False):
     # Attempts to connnect .. continues if already connected #
     with sema_lock:
         try:
+            # Connect to passed in database #
             conn = sqlite3.connect(f'{db}.db')  
         except:
             pass
 
-        # Executes query, either fetches data or commits queries #
+        # Executes query passed in #
         try:
             db_call = conn.execute(query)
 
+            # If creating database close connection
+            # and moves back a directory #
             if create == True:
                 conn.close()
                 os.chdir('.\\..')
                 return
 
+            # Fetches entry from database then closes
+            # connection and moves back a directory #
             elif fetchone == True:
                 row = db_call.fetchone()
                 conn.close()
                 os.chdir('.\\..')
                 return row
 
+            # Fetches all database entries then closes
+            # connection and moves back a directory #
+            elif fetchall == True:
+                rows = db_call.fetchall()
+                conn.close()
+                os.chdir('.\\..')
+                return rows
+
+            # Commit query to db #
             conn.commit()
+            # Move back a directory #
+            os.chdir('.\\..')
 
         # Database query error handling #
-        except (Warning, Error, DatabaseError, IntegrityError, \
+        except (Warning, Error, DatabaseError, IntegrityError,
         ProgrammingError, OperationalError, NotSupportedError) as err:
+            # Prints general error #
             PrintErr('\n* [ERROR] Database error occured *\n', 2)
+            # Moves back a directory #
+            os.chdir('.\\..')
+            # Passes log message to logging function #
             Logger(f'SQL error: {err}\n', password, \
                     operation='write', handler='error')
-
+        
+        # Close connection #
         conn.close()
-        os.chdir('.\\..')
 
 # Run system command #
-def SystemCmd(cmd, stdout, stderr, exec_time):
-    exe = shlex.quote(cmd)
+def SystemCmd(cmd, stdout, stderr, exec_time, exif=False, cipher=False):
     try:
-        command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+        # Exif command to strip metadata #
+        if exif == True:
+            command = Popen(['python', '-m', 'exif_delete', '-r', cmd], stdout=stdout, stderr=stderr, shell=False)
+        # Cipher command to scub deleted data from hd #
+        elif cipher == True:
+            command = Popen(['cipher', f'/w:{cmd}'], stdout=stdout, stderr=stderr, shell=False)
+        # For built-in Windows shell commands like cls #
+        else:
+            exe = shlex.quote(cmd)
+            command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+
         outs, errs = command.communicate(exec_time)
+
+    # Handles process timeouts and errors # 
     except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
         command.kill()
         outs, errs = command.communicate()
