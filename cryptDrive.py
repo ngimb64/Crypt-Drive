@@ -516,7 +516,7 @@ if __name__ == '__main__':
         except Exception as err:
             PrintErr('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
             Logger(f'Exception occured: {err}\n', password, operation='write', handler='exception')
-        #     continue
-        # except KeyboardInterrupt:
-        #     PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
-        #     break
+            continue
+        except KeyboardInterrupt:
+            PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
+            break
