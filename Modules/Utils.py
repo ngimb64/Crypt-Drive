@@ -1,4 +1,5 @@
 # Built-in Modules #
+import os, logging, re, shlex, shutil, smtplib, sqlite3
 from base64 import b64encode
 from email import encoders
 from email.mime.base import MIMEBase
@@ -10,12 +11,11 @@ from threading import BoundedSemaphore
 from time import sleep
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
                     ProgrammingError, OperationalError, NotSupportedError
-import os, logging, re, shlex, shutil, smtplib, sqlite3
 
 # Third-party Modules #
+import keyring
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from cryptography.fernet import Fernet
-import keyring
 
 # Custom Modules #
 import Modules.Globals as Globals
@@ -37,37 +37,56 @@ import Modules.Globals as Globals
 def FileHandler(filename, op, password, operation=None, data=None):
     count = 0
 
+    # If no operation was specified #
+    if operation == None:
+        Logger('File IO Error: File opertion not specified\n', password,
+                operation='write', handler='error')
+        PrintErr('\n* File IO Error: File opertion not specified *\n', 2)
+        return
+
+    # If read operation and file is missing #
+    if operation == 'read' and not Globals.FILE_CHECK(filename):
+        Logger('File IO Error: File read attempted on either missing file\n',
+                password, operation='write', handler='error')
+        PrintErr('\n* File IO Error: File read attempted on either missing file *\n', 2)
+        return
+
+    # If read operation and file does note have access #
+    if operation == 'read' and not os.access(filename, os.R_OK):
+        Logger('File IO Error: File read attempted on file with no access .. potenially already in use\n',
+                password, operation='write', handler='error')
+        PrintErr('\n* File IO Error: File read attempted on file with no access .. potenially already in use *\n', 2)
+        return        
+
+    # If write operation and file exists, but does note have access #
+    if operation == 'write' and Globals.FILE_CHECK(filename) and not os.access(filename, os.W_OK):
+        Logger('File IO Error: File write attempted on file with no access .. potenially already in use\n',
+                password, operation='write', handler='error')
+        PrintErr('\n* File IO Error: File opertion not specified *\n', 2)
+        return
+
     while True:
         try:
-            # If the file exists and is permitted access #
-            if Globals.FILE_CHECK(filename) and os.access(filename, os.R_OK):
-                # Open file #
-                with open(filename, op) as file:
-                    # If no operation was specified #
-                    if operation == None:
-                        Logger('File IO Error: File opertion not specified\n', password,
+            with open(filename, op) as file:
+                # If read operation was specified #
+                if operation == 'read':
+                    return file.read()
+
+                # If write operatiob was specified #
+                elif operation == 'write':
+                    # If no data is present #
+                    if data == None:
+                        Logger('File IO Error: Empty file buffered detected\n', password,
                                 operation='write', handler='error')
                         return
 
-                    # If read operation was specified #
-                    elif operation == 'read':
-                        return file.read()
-
-                    # If write operatiob was specified #
-                    elif operation == 'write':
-                        # If no data is present #
-                        if data == None:
-                            Logger('File IO Error: Empty file buffered detected\n', password,
-                                    operation='write', handler='error')
-                            return
-
-                        return file.write(data)
-                        
-                    # If improper operation specified #
-                    else:
-                        Logger('File IO Error: Improper file opertion attempted\n', password,
-                                operation='write', handler='error')
-            break
+                    return file.write(data)
+                    
+                # If improper operation specified #
+                else:
+                    Logger('File IO Error: Improper file opertion attempted\n', password,
+                            operation='write', handler='error')
+                    return
 
         # File error handling #
         except (IOError, FileNotFoundError, Exception) as err:
@@ -75,6 +94,8 @@ def FileHandler(filename, op, password, operation=None, data=None):
                 PrintErr('\n* [ERROR] Maximum consecutive File IO errors'
                          ' detected .. check log & contact support *\n', 4)
                 exit(3)
+
+            print(f'\nIO Error: {err}\n')
 
             Logger(f'File IO Error: {err}\n', password, operation='write', handler='error')
             PrintErr('\n* [ERROR] File Lock/IO failed .. waiting 5'
@@ -204,20 +225,18 @@ def Logger(msg, password, operation=None, handler=None):
             log_msg = Globals.LOG_STREAM.getvalue()
 
             try:
-                # If the file exists and is permitted access #
-                if Globals.FILE_CHECK(log_name) and os.access(log_name, os.R_OK):
-                    with open(log_name, 'wb') as file:
-                        # If log has data & is less than the 25 mb max size #
-                        if 0 < log_size < 26214400:
-                            # Append new log message to existing log #
-                            log_parse = text + '\n' + log_msg
-                            # Encrypt log data & store on file #
-                            crypt = Fernet(db_key).encrypt(log_parse.encode())
-                            file.write(crypt)
-                        else:
-                            # Encrypt log data & store on file #
-                            crypt = Fernet(db_key).encrypt(log_msg.encode())
-                            file.write(crypt)
+                with open(log_name, 'wb') as file:
+                    # If log has data & is less than the 25 mb max size #
+                    if 0 < log_size < 26214400:
+                        # Append new log message to existing log #
+                        log_parse = text + '\n' + log_msg
+                        # Encrypt log data & store on file #
+                        crypt = Fernet(db_key).encrypt(log_parse.encode())
+                        file.write(crypt)
+                    else:
+                        # Encrypt log data & store on file #
+                        crypt = Fernet(db_key).encrypt(log_msg.encode())
+                        file.write(crypt)
 
             except (IOError, FileNotFoundError, Exception):
                 PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
@@ -250,20 +269,18 @@ def Logger(msg, password, operation=None, handler=None):
             # Get log message in variable #
             log_msg = Globals.LOG_STREAM.getvalue()
             try:
-                # If the file exists and is permitted access #
-                if Globals.FILE_CHECK(filename) and os.access(filename, os.R_OK):
-                    with open(log_name, 'wb') as file:
-                        # If log has data & is less than the 25 mb max size #
-                        if 0 < log_size < 26214400:
-                            # Append new log message to existing log #
-                            log_parse = text + '\n' + log_msg
-                            # Encrypt log data & store on file #
-                            crypt = Fernet(db_key).encrypt(log_parse.encode())
-                            file.write(crypt)
-                        else:
-                            # Encrypt log data & store on file #
-                            crypt = Fernet(db_key).encrypt(log_msg.encode())
-                            file.write(crypt)
+                with open(log_name, 'wb') as file:
+                    # If log has data & is less than the 25 mb max size #
+                    if 0 < log_size < 26214400:
+                        # Append new log message to existing log #
+                        log_parse = text + '\n' + log_msg
+                        # Encrypt log data & store on file #
+                        crypt = Fernet(db_key).encrypt(log_parse.encode())
+                        file.write(crypt)
+                    else:
+                        # Encrypt log data & store on file #
+                        crypt = Fernet(db_key).encrypt(log_msg.encode())
+                        file.write(crypt)
 
             except (IOError, FileNotFoundError, Exception):
                 PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
@@ -419,16 +436,18 @@ def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=Fal
 
 # Run system command #
 def SystemCmd(cmd, stdout, stderr, exec_time, exif=False, cipher=False):
+    # Shell escape command string #
+    exe = shlex.quote(cmd)
+
     try:
         # Exif command to strip metadata #
         if exif == True:
-            command = Popen(['python', '-m', 'exif_delete', '-r', cmd], stdout=stdout, stderr=stderr, shell=False)
+            command = Popen(['python', '-m', 'exif_delete', '-r', exe], stdout=stdout, stderr=stderr, shell=False)
         # Cipher command to scub deleted data from hd #
         elif cipher == True:
-            command = Popen(['cipher', f'/w:{cmd}'], stdout=stdout, stderr=stderr, shell=False)
+            command = Popen(['cipher', f'/w:{exe}'], stdout=stdout, stderr=stderr, shell=False)
         # For built-in Windows shell commands like cls #
         else:
-            exe = shlex.quote(cmd)
             command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
 
         outs, errs = command.communicate(exec_time)

@@ -1,8 +1,10 @@
 # Built-in Modules #
+import os, re
 from base64 import b64encode, b64decode
 from getpass import getuser
+from pathlib import Path
+from shutil import rmtree
 from time import sleep
-import os, re
 
 # Third-party Modules #
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -12,6 +14,7 @@ from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
+from pydrive2.files import GoogleDriveFileList
 
 # Custom Modules #
 import Modules.Globals as Globals
@@ -29,6 +32,9 @@ from Modules.Utils import FileHandler, MsgFormat, MsgSend, PrintErr, QueryHandle
 # - ListStorage:    lists connents of storage database
 # - ShareKey:       shares decrypt components with other user protected via tempory password
 # - Upload:         Google Drive upload function
+
+
+parent_id = ''
 
 # Extracts data from storage database as encrypted or plaintext #
 def DbExtract(dbs, cmd, password, folder, path):
@@ -188,9 +194,9 @@ def DbStore(dbs, cmd, password, path):
         encryptor = cipher.encryptor()
 
     # List of file extension types #
-    ext = [ '.avi', '.doc', '.docm', '.docx', '.exe', '.gif', 
+    ext = ( '.avi', '.doc', '.docm', '.docx', '.exe', '.gif', 
             '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf', 
-            '.png', '.pptx', '.rar', '.wav', '.wma', '.zip' ]
+            '.png', '.pptx', '.rar', '.wav', '.wma', '.zip' )
 
     print('\nStoring path in database:\n' + ('-' * 21) + '\n')
 
@@ -203,7 +209,7 @@ def DbStore(dbs, cmd, password, path):
             rel_path = re.search(r'Documents\\[a-zA-Z0-9\.\_\\]+$', dirpath)
 
             # If file contains extension with metadata #
-            if file.endswith(tuple(ext)):
+            if file.endswith(ext):
                 # Strip metadata from file #
                 SystemCmd((dirpath + '\\' + file), None, None, 2, exif=True)
 
@@ -314,44 +320,56 @@ def Decryption(db, cmd, user, password, local_path):
 
     print('\n[SUCCESS] Data has been decrypted')
 
-def FileUpload(drive, up_path, dir_path, file, http):
+def FileUpload(drive, up_path, dir_path, file, http, local_path):
+    # If upload is in the root dir #
     if not up_path:
         file_obj = drive.CreateFile({'title': file})
-        file_obj.SetContentFile(dir_path + '\\' + file)
-        # Upload & pass http object into upload call #
+        # Create the file object #
+        file_obj.SetContentFile(dir_path+'\\'+file)
+        # Upload file & pass http object into upload call #
         file_obj.Upload(param={'http': http})
     else:
+        # Create GoogleDrive list #
+        folders = GoogleDriveFileList()
         # Get List of folders in upload path #
-        folders = drive.ListFile({'q': 'title=\'' + up_path + '\' and mimeType='
+        folders = drive.ListFile({'q': 'title=\''+up_path+'\' and mimeType='
                                  '\'application/vnd.google-apps.folder\' and trashed=false'}).GetList()
         for folder in folders:
             # If folder matches extension path .. create it in folder #
             if folder['title'] == up_path:  
                 file_obj = drive.CreateFile({'parents': [{'id': folder['id']}], 'title': file})          
-                file_obj.SetContentFile(dir_path + '\\' + up_path + '\\' + file)
+                file_obj.SetContentFile(dir_path+'\\'+local_path+'\\'+file)
                 # Upload & pass http object into upload call #
                 file_obj.Upload(param={'http': http})       
 
-def FolderUpload(drive, up_path, dirname, http):
-    print(f'\nParent directory: {up_path}\nSub-directory: {dirname}')
+def FolderUpload(drive, parent_dir, dirname, http, count):
+    global parent_id
 
-    if not up_path:
-        # Create folder object & upload #
+    # If upload is in the root dir #
+    if not parent_dir:
+        # Create folder object #
         folder = drive.CreateFile({'title': dirname, 'mimeType': 'application/vnd.google-apps.folder'})
         # Upload & pass http object into upload call #
         folder.Upload(param={'http': http})
-
-        print(f'\nFolder to be created: {folder}')
-
     else:
-        # Create sub-folder object & upload #       # NOTE: also attempted driv#parentReference which resulted with the same 404 error
-        folder = drive.CreateFile({'title': dirname, 'parents': [{'kind': 'drive#fileLink', 'id': up_path}],
-                                   'mimeType': 'application/vnd.google-apps.folder'})
+        folder_list = GoogleDriveFileList()
 
-        print(f'\nFolder to be created: {folder}')
+        if count > 1:
+            folder_list = drive.ListFile({'q': "'{0}' in parents and trashed=false".format(parent_id)}).GetList()
+        else: 
+            folder_list = drive.ListFile({'q': "'root' in parents and trashed=false"}).GetList()
 
-        # Upload & pass http object into upload call #
-        folder.Upload(param={'http': http})
+        for folder in folder_list:
+            if folder['title'] == parent_dir:
+                # Create sub-folder object & upload #
+                parent = drive.CreateFile({'title': dirname, 'parents': [{'kind': 'drive#fileLink', 'id': folder['id']}],
+                                           'mimeType': 'application/vnd.google-apps.folder'})
+
+                # Upload & pass http object into upload call #
+                parent.Upload(param={'http': http})
+
+                if count >= 1:
+                    parent_id = parent['parents'][0]['id']
 
 def ImportKey(db, password, user, user_pass):
     key_path = f'.\\Import\\{user}_decrypt.txt'
@@ -543,7 +561,8 @@ def Upload(dbs, cmd, password, local_path, abs_path):
     while True:
         prompt = input('\nIs the data being uploaded already encrypted or in plain text (encrypted or plain)? ')
         prompt2 = input('\nAfter uploading data to cloud should it be deleted (y or n)? ')
-        if prompt not in ('encrypted', 'plain') or not local_path and prompt == 'plain' or prompt2 not in ('y', 'n'):
+
+        if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') or prompt2 not in ('y', 'n'):
             PrintErr('\n* [ERROR] Improper input provided .. if Storage '
                      'selected, encrypted must also be selected *\n', 2)
             continue
@@ -551,6 +570,7 @@ def Upload(dbs, cmd, password, local_path, abs_path):
         if not local_path and prompt == 'encrypted':
             folder = input('\nEnter the folder name to recursively extract from storage database and upload: ')
             prompt3 = input('\nShould the data extracted be deleted from the data base after operation (y or n)? ')
+
             if not re.search(r'^[a-zA-Z0-9\_\.]{1,30}', folder) or prompt2 not in ('y', 'n'):
                 PrintErr('\n* [ERROR] Improper input provided .. try again *\n', 2)
                 continue
@@ -614,7 +634,7 @@ def Upload(dbs, cmd, password, local_path, abs_path):
 
         for row in extract_call:
             # If regex is successful #
-            if re.search(f'{folder}', row[1]) != None:
+            if re.search(f'{folder}', row[1]):
                 # Decode base64 contents #
                 text = b64decode(row[2])
 
@@ -648,77 +668,122 @@ def Upload(dbs, cmd, password, local_path, abs_path):
 
     # Grab only the rightmost directory of path save result in other regex 
     # as anchor point for confirming rescursive directories while crawling #
-    reg_pathEdge = re.search(r'[a-zA-Z0-9_\"\' \.\,\-]+$', local_path)
-    reg_extPath = re.compile(fr'(?<={str(reg_pathEdge.group(0))}\\).+')
+    reg_pathEdge = re.search(r'[^\\]+$', local_path)
+    # Insert path edge regex match into regex to match any path past the edge anchor point #
+
+    # Match the first occurance
+    reg_filePath = re.compile(r'(?<={0}\\).+$'.format(str(reg_pathEdge.group(0))))
+
+    # Grab the rightmost directory of the current path for upload #
+    reg_upPath = re.compile(r'[^\\]+$')
 
     # List of file extension types #
-    ext = [ '.avi', '.doc', '.docm', '.docx', '.exe', '.gif', 
+    ext = ( '.avi', '.doc', '.docm', '.docx', '.exe', '.gif', 
             '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf', 
-            '.png', '.pptx', '.rar', '.wav', '.wma', '.zip' ]
+            '.png', '.pptx', '.rar', '.wav', '.wma', '.zip' )
+
+    count = 0
 
     print('\nUploading files in path:\n' + ('-' * 25))
 
-    # Iterate through folders/files recursively in upload source path, 
+    # Iterate through folders/files recursively in upload source path,
     # encrypt data, then upload to destination path #
     for dirpath, dirnames, filenames in os.walk(local_path):
         print(f'\nUpload path: {dirpath}\n')
-        extPath = re.search(reg_extPath, dirpath)
+
+        # Search file path with regex to grab recursive paths #
+        filePath_match = re.search(reg_filePath, dirpath)
+        upPath_match = re.search(reg_upPath, dirpath)
+
+        # If match for upload #
+        if upPath_match:
+            upPath = str(upPath_match.group(0))
+        else:
+            upPath = None
+
+        # If match for local files #
+        if filePath_match:
+            filePath = str(filePath_match.group(0))
+        else:
+            filePath = None
 
         # Upload folder to Drive #
         for dirname in dirnames:
             print(f'Directory name: {dirname}')
-            if not extPath:
-                FolderUpload(drive, None, dirname, http)
+            if not filePath:
+                try:
+                    # Create dir in UploadDock #
+                    os.mkdir(f'.\\UploadDock\\{dirname}')
+                # Pass if dir already exists #
+                except FileExistsError:
+                    pass
+
+                # Create folder in drive #
+                FolderUpload(drive, None, dirname, http, count)
+                count += 1
             else:
-                FolderUpload(drive, str(extPath.group(0)), dirname, http)
+                try:
+                    # Set the path for recursive directory creation #
+                    create_path = Path(abs_path+'\\UploadDock\\'+filePath+'\\'+dirname)
+                    # Create dirpath in UploadDock #
+                    create_path.mkdir(parents=True, exist_ok=True)
+                # Pass if dir already exists #
+                except FileExistsError as err:
+                    print('Error making parent dir: {err}')
+                    pass
+
+                # Create folder in UploadDock #
+                FolderUpload(drive, upPath, dirname, http, count)
+                count += 1
 
         print('\n')
 
         for file in filenames:
             print(f'File: {file}')
 
-            # If the UploadDock is not being used or data in UploadDock is plain text #
-            if local_path != '.\\UploadDock' or prompt == 'plain':  
+            # If the UploadDock is not being used  #
+            if local_path != '.\\UploadDock':
                 # Read file data #
-                file_data = FileHandler((dirpath + '\\' + file), 'rb', password, operation='read')
+                file_data = FileHandler((dirpath+'\\'+file), 'rb', password, operation='read')
 
                 # If in plain text .. encrypt it #
                 if prompt == 'plain':
                     crypt = encryptor.update(file_data)
+                else:
+                    crypt = file_data
 
                 # Re-write data in upload dock retaining file structure #
-                if not extPath:
-                    FileHandler(('.\\UploadDock\\' + file), 'wb', password, operation='write', data=crypt)
+                if not filePath:
+                    FileHandler(('.\\UploadDock\\'+file), 'wb', password, operation='write', data=crypt)
                 else:
-                    FileHandler(('.\\UploadDock\\' + str(extPath.group(0)) + '\\' + file), 'wb', password, operation='write', data=crypt)
+                    FileHandler(('.\\UploadDock\\'+filePath+'\\'+file), 'wb', password, operation='write', data=crypt)
 
             # If file contains extension suggesting metadata #
-            if file.endswith(tuple(ext)):
-                if not extPath:
+            if file.endswith(ext):
+                if not filePath:
                     # Strip metadata from file #
-                    SystemCmd((abs_path + '\\UploadDock\\' + file), None, None, 2, exif=True)
+                    SystemCmd((abs_path+'\\UploadDock\\'+file), None, None, 2, exif=True)
                 else:
                     # Strip metadata from file #
-                    SystemCmd((abs_path + '\\UploadDock\\' + str(extPath.group(0)) + '\\' + file), None, None, 2, exif=True)
+                    SystemCmd((abs_path+'\\UploadDock\\'+filePath+'\\'+file), None, None, 2, exif=True)
 
             # Upload file to Drive #
-            if not extPath:
-                FileUpload(drive, None, '.\\UploadDock', file, http)
-
-                # If the user wants to delete data after uploading #
-                if prompt2 == 'y':
-                    # Unlink file from file system #
-                    os.remove('.\\UploadDock\\' + file)
+            if not filePath:
+                FileUpload(drive, None, '.\\UploadDock', file, http, None)
             else:
-                FileUpload(drive, str(extPath.group(0)), '.\\UploadDock', file, http)
+                FileUpload(drive, upPath, '.\\UploadDock', file, http, filePath)
 
-                # If the user wants to delete data after uploading #
-                if prompt2 == 'y':
-                    # Unlink file from file system #
-                    os.remove('.\\UploadDock\\' + str(extPath.group(0)) + '\\' + file)
+            # If the user wants to delete data after uploading #
+            if prompt2 == 'y':
+                os.remove(dirpath + '\\' + file)
+
+    # Clear all data in UploadDock #
+    rmtree('.\\UploadDock')
+    os.mkdir('.\\UploadDock')
 
     if prompt2 == 'y':
-        for dirpath, dirnames, filenames in os.walk(local_path):
+        for dirpath, dirnames, _ in os.walk(local_path):
             [ os.rmdir(dirpath + '\\' + dirname) for dirname in dirnames ]
 
     print(f'\n[SUCCESS] Files from {local_path} have been uploaded')
+    sleep(2)

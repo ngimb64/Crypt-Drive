@@ -1,10 +1,11 @@
 # Built-in Modules #
+import ctypes, logging, os, re, shutil
 from base64 import b64encode
 from getpass import getpass
 from time import sleep
-import ctypes, logging, os, re, shutil
 
 # Third-party Modules #
+import keyring, winshell
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.exceptions import InvalidTag
@@ -12,7 +13,6 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from filelock import FileLock, Timeout
 from pyfiglet import Figlet
-import keyring, winshell
 
 # Custom Modules #
 import Modules.Globals as Globals
@@ -191,7 +191,7 @@ def MainMenu(dbs, password, cmds, abs_path):
         # Exit the program #
         elif prompt == 'exit':
             print('\nExiting Utility ..')
-            sleep(2)
+            sleep(1)
             exit(0)
 
         elif prompt == 'view':
@@ -385,20 +385,22 @@ def PasswordInput(cmds, test):
     # Initialize password hashing algorithm #
     pass_algo = PasswordHasher()
 
-    key_check, nonce_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt'), Globals.FILE_CHECK('.\\Keys\\nonce.txt')
-    dbKey_check, DbCheck = Globals.FILE_CHECK('.\\Keys\\db_crypt.txt'), Globals.FILE_CHECK('.\\Dbs\\keys.db')
+    key_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt')
+    nonce_check = Globals.FILE_CHECK('.\\Keys\\nonce.txt')
+    dbKey_check = Globals.FILE_CHECK('.\\Keys\\db_crypt.txt')
+    db_check = Globals.FILE_CHECK('.\\Dbs\\keys.db')
     storage_check = Globals.FILE_CHECK('.\\Dbs\\storage.db')
 
     # If all major components missing avoid StartCheck script #
     if not key_check and not nonce_check and not dbKey_check \
-    and not DbCheck and not storage_check:
+    and not db_check and not storage_check:
         test = False
 
     while True:
         # Clear display #
         SystemCmd(cmds[0], None, None, 2)
         
-        # If user maxed attempts (3 sets of password fails) #
+        # If user maxed attempts (3 sets of 3 failed password attempts) #
         if count == 12:
             # Code can be added to notify administrator or 
             # raise an alert to remote system # 
@@ -517,6 +519,7 @@ if __name__ == '__main__':
             PrintErr('\n* [EXCEPTION] Exception occured .. check log *\n', 2)
             Logger(f'Exception occured: {err}\n', password, operation='write', handler='exception')
             continue
+
         except KeyboardInterrupt:
             PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
             break
