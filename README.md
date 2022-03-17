@@ -1,7 +1,7 @@
 # Crypt Drive
 
 ## Prereqs
-- Python 3.9
+- Made on Windows 10 with Python 3.9
 
 ## Installation
 - After Prereqs are completed
