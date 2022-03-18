@@ -10,4 +10,6 @@ save_credentials_file: credentials.json
 get_refresh_token: True
 
 oauth_scope:
+  - https://www.googleapis.com/auth/drive
+  - https://www.googleapis.com/auth/drive.metadata
   - https://www.googleapis.com/auth/drive.file
