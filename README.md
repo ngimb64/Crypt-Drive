@@ -1,4 +1,5 @@
 # Crypt Drive
+![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
 
 ## Prereqs
 - Made on Windows 10 with Python 3.9

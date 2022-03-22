@@ -6,6 +6,7 @@ Keys/
 Resource_Files/
 UploadDock/
 Modules/__pycache__/
+.idea/
 
 # Files to ignore
 cryptLog.log
