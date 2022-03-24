@@ -33,9 +33,8 @@ are created and the data must be re-uploaded with the new key set to be able to 
 - A startup script is run to confirm critical components exist .. recreates anything missing
 
 ### Upload
-- After completing the prereqs & installation steps uploading should pretty simple
 - Enter path to file as the recommended format C:\like\this\to\folder
-- The default web browser should pop up with a google login page
+- The default web browser should pop up with a Google login page
 - After completing authentication the credentials should be saved to a credentials.json file which prevents
   having to log in for future use
 - Upload process should initiate & finish in a timely manner
@@ -44,7 +43,7 @@ are created and the data must be re-uploaded with the new key set to be able to 
 - Simply enter the prompted questions and the rest will be handled
 - Preferably obtain two separate email accounts (one being an encrypted provider like protonmail or tutanota) & a
   phone number of the person to share keys, nonce, & password with
-- One email account can be used for both emails but it reduces the security while requiring less effort to intercept
+- One email account can be used for both emails, but it reduces the security while requiring less effort to intercept
   and crack the encryption
 
 ### Import
@@ -56,5 +55,5 @@ are created and the data must be re-uploaded with the new key set to be able to 
 ### Decryption
 - Download shared cloud drive data
 - Move encrypted data into DecryptDock folder
-- Make sure the users decryption keys have been imported
+- Make sure the user's decryption keys have been imported
 - Enter username to decrypt data or enter to decrypt your own data
