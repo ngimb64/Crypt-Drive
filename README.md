@@ -2,15 +2,14 @@
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
 
 ## Prereqs
-- Made on Windows 10 with Python 3.9
+- Made on Windows 10, written in Python 3.9
 
 ## Installation
-- After Prereqs are completed
 - Create a gmail account or login to existing account
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
   https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
 - Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml
-  file where specified .. which saves credentials after the first use of api. Then rename the file to settings.yaml.
+  file where specified, which saves credentials after the first use of api. Then rename the file to settings.yaml.
 - Run setup.py to ensure external packages are installed
 
 ## Purpose
@@ -29,8 +28,8 @@ are created and the data must be re-uploaded with the new key set to be able to 
 - Data encrypt / decrypt - ChaCha20 256 with 128 bit nonce
 
 ## How to use
-- Enter password to create key/database set .. if they already exist the db encryption key is unlocked
-- A startup script is run to confirm critical components exist .. recreates anything missing
+- Enter password to create key/database set, if they already exist the db encryption key is unlocked
+- A startup script is run to confirm critical components exist, recreates anything missing
 
 ### Upload
 - Enter path to file as the recommended format C:\like\this\to\folder
@@ -41,7 +40,7 @@ are created and the data must be re-uploaded with the new key set to be able to 
 
 ### Sharing Keys
 - Simply enter the prompted questions and the rest will be handled
-- Preferably obtain two separate email accounts (one being an encrypted provider like protonmail or tutanota) & a
+- Preferably obtain two separate email accounts (one being an encrypted provider like Protonmail or Tutanota) & a
   phone number of the person to share keys, nonce, & password with
 - One email account can be used for both emails, but it reduces the security while requiring less effort to intercept
   and crack the encryption
