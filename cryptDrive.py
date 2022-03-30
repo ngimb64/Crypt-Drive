@@ -30,6 +30,7 @@ from Modules.Utils import FileHandler, HdCrawl, KeyHandler, Logger, PrintErr, Qu
 # Global variables #
 global log
 
+
 '''
 ########################################################################################################################
 Name:       MainMenu
@@ -38,7 +39,7 @@ Parameters: Database tuple, password hash, command syntax tuple, and absolute pa
 Returns:    None
 ########################################################################################################################
 '''
-def MainMenu(db_tuple: tuple, secret: str, syntax_tuple: tuple, full_path: str):
+def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str):
     # Compile regex patterns #
     re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9_\"\' .,\-]{1,60})+')
     re_email = re.compile(r'.+?@[a-zA-Z0-9_.]{4,20}\.[a-z]{2,4}$')
@@ -230,7 +231,7 @@ Parameters: Database tuple and password hash.
 Returns:    None
 ########################################################################################################################
 '''
-def DbCheck(db_tuple: tuple, secret: str):
+def DbCheck(db_tuple: tuple, secret: bytes):
     # Load AESCCM decrypt components #
     key = FileHandler('.\\Keys\\aesccm.txt', 'rb', secret, operation='read')
     nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', secret, operation='read')
@@ -300,7 +301,7 @@ Parameters: Database tuple, password hash, and the absolute path.
 Returns:    None
 ########################################################################################################################
 '''
-def StartCheck(db_tuple: tuple, secret: str, full_path: str):
+def StartCheck(db_tuple: tuple, secret: bytes, full_path: str):
     global log
 
     failures = []
@@ -520,11 +521,11 @@ if __name__ == '__main__':
     # Boolean switch #
     test = True
 
-    # Call password input function #
-    password, test = PasswordInput(cmds, test)
-
     # Initialize global lambda variables #
     Globals.Initialize()
+
+    # Call password input function #
+    password, test = PasswordInput(cmds, test)
 
     # Initialize logging facilities #
     logging.basicConfig(level=logging.ERROR, stream=Globals.LOG_STREAM,
