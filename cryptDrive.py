@@ -1,6 +1,7 @@
 # Built-in Modules #
 import ctypes
 import logging
+import os
 import sys
 import time
 from getpass import getpass
@@ -18,39 +19,49 @@ import Modules.Globals as Globals
 from Modules.MenuFunctions import *
 from Modules.Utils import FileHandler, HdCrawl, KeyHandler, Logger, PrintErr, QueryHandler, SystemCmd
 
+"""
 ##################
 # Function Index #
 ########################################################################################################################
-# - MainMenu:           displays command options, executes selected options
-# - DbCheck:            function in StartCheck for checking upload components in keys db
-# - StartCheck:         startup script to handle password hash & confirm program components exist
-# - PasswordInput:      password hashing function to verify hash in keyring or create new password hash
+MainMenu - Displays command options, executes selected options.
+DbCheck - Function in StartCheck for checking upload components in keys db.
+StartCheck - Startup script to handle password hash & confirm program components exist.
+PasswordInput - Password hashing function to verify hash in keyring or create new password hash.
 ########################################################################################################################
+"""
 
 # Global variables #
 global log
 
 
-'''
+"""
 ########################################################################################################################
 Name:       MainMenu
 Purpose:    Display command options and receives input on what command to execute.
 Parameters: Database tuple, password hash, command syntax tuple, and absolute path.
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str):
     # Compile regex patterns #
-    re_path = re.compile(r'^C:(?:\\[a-zA-Z0-9_\"\' .,\-]{1,60})+')
+    # If OS is Windows #
+    if os.name == 'nt':
+        re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z0-9_\"\' .,\-]{1,60})+')
+        cmd = syntax_tuple[0]
+    # If OS is Linux #
+    else:
+        re_path = re.compile(r'^(?:\\[a-zA-Z0-9_\"\' .,\-]{1,60})+')
+        cmd = syntax_tuple[1]
+
     re_email = re.compile(r'.+?@[a-zA-Z0-9_.]{4,20}\.[a-z]{2,4}$')
     re_user = re.compile(r'^[a-zA-Z0-9_]{1,30}')
-    re_pass = re.compile(r'^[a-zA-Z0-9_!+$@&(]{10,30}')
+    re_pass = re.compile(r'^[a-zA-Z0-9_!+$@&(]{12,30}')
     re_phone = re.compile(r'^[0-9]{10}')
     custom_fig = Figlet(font='roman', width=100)
 
     # Clears screen per loop for clean display #
     while True:
-        SystemCmd(syntax_tuple[0], None, None, 2)
+        SystemCmd(cmd, None, None, 2)
         print(custom_fig.renderText('Crypt Drive'))
         print('''
     @===============@
@@ -73,7 +84,7 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
         # Upload encrypted data #
         if prompt == 'upload':
             while True:
-                local_path = input('\nSpecify path to folder C:\\like\\this for upload, \"Storage\" for '
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path for upload, \"Storage\" for '
                                    'contents from storage database or enter for UploadDock:\n')
                 # If regex fails and Storage and enter was not input #
                 if not re.search(re_path, local_path) and local_path != 'Storage' and local_path != '':
@@ -89,12 +100,12 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
             elif local_path == 'Storage':
                 local_path = None
 
-            Upload(db_tuple, syntax_tuple[0], secret, local_path, full_path)
+            Upload(db_tuple, secret, local_path, full_path)
 
         # Store data in storage database #
         elif prompt == 'store':
             while True:
-                local_path = input('\nSpecify path to folder C:\\like\\this for database storage or enter for Import:\n')
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path for database storage or enter for Import:\n')
                 # If regex fails and enter was not input #
                 if not re.search(re_path, local_path) and local_path != '':
                     PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
@@ -105,13 +116,13 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
             if local_path == '':
                 local_path = full_path + '\\Import'
 
-            DbStore(db_tuple, syntax_tuple[0], secret, local_path)
+            DbStore(db_tuple, secret, local_path)
 
         # Extract data from storage db #
         elif prompt == 'extract':
             while True:
                 directory = input('Enter folder name to be recursively exported from the database: ')
-                local_path = input('\nSpecify path to folder C:\\like\\this to export to or enter export in Documents\n')
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path to export to or hit enter export in Documents\n')
                 # If path regex fails and enter was not input or folder regex fails #
                 if not re.search(re_path, local_path) and local_path != '' or not re.search(r'^[a-zA-Z0-9._]{1,30}', directory):
                     PrintErr('\n* [ERROR] Improper format .. try again *\n', 2)
@@ -122,7 +133,7 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
             if local_path == '':
                 local_path = None
 
-            DbExtract(db_tuple, syntax_tuple[0], secret, directory, local_path)
+            DbExtract(db_tuple, secret, directory, local_path)
 
         # List cloud contents #
         elif prompt == 'ldrive':
@@ -150,7 +161,7 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
         elif prompt == 'decrypt':
             while True: 
                 username = input('Enter username of data to decrypt or hit enter for your own data: ')
-                local_path = input('\nSpecify path to folder C:\\like\\this to export to or enter export in Documents\n')
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path to export to or enter for DecryptDock\n')
                 # If username regex fails and enter was not entered or path regex fails and enter was not entered #
                 if not re.search(re_user, username) and username != '' or \
                 not re.search(re_path, local_path) and local_path != '':
@@ -159,13 +170,15 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
 
                 break
 
-                if local_path == '':
-                    local_path = '.\\DecryptDock'
+            if local_path == '':
+                local_path = '.\\DecryptDock'
 
-            Decryption(db_tuple[0], syntax_tuple[0], username, secret, local_path)
+            Decryption(db_tuple[0], username, secret, local_path)
 
         # Share private key with user #
         elif prompt == 'share':
+            provider = None
+
             while True:
                 send_email = input('Enter your gmail email address: ')
                 email_pass = getpass('Enter gmail account password: ')
@@ -200,6 +213,9 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
                         provider = 'sms.myboostmobile.com'
                     elif carrier == 'us-cellular':
                         provider = 'email.uscc.net'
+                    else:
+                        PrintErr('\n* [ERROR] Unknown exception occurred *\n', 2)
+                        sys.exit(3)
 
                 break
 
@@ -223,14 +239,14 @@ def MainMenu(db_tuple: tuple, secret: bytes, syntax_tuple: tuple, full_path: str
         time.sleep(2.5)
 
 
-'''
+"""
 ########################################################################################################################
 Name:       DbCheck
 Purpose:    Checks the upload contents within the keys database.
 Parameters: Database tuple and password hash.
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def DbCheck(db_tuple: tuple, secret: bytes):
     # Load AESCCM decrypt components #
     key = FileHandler('.\\Keys\\aesccm.txt', 'rb', secret, operation='read')
@@ -292,7 +308,7 @@ def DbCheck(db_tuple: tuple, secret: bytes):
         Fernet(db_key).decrypt(nonce_call[1].encode())
 
 
-'''
+"""
 ########################################################################################################################
 Name:       StartCheck
 Purpose:    Confirms program components are preset. If missing, component recovery is attempted, which if fails \
@@ -300,7 +316,7 @@ Purpose:    Confirms program components are preset. If missing, component recove
 Parameters: Database tuple, password hash, and the absolute path.
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def StartCheck(db_tuple: tuple, secret: bytes, full_path: str):
     global log
 
@@ -416,14 +432,14 @@ def StartCheck(db_tuple: tuple, secret: bytes, full_path: str):
                 KeyHandler(db_tuple, secret)
 
 
-'''
+"""
 ########################################################################################################################
 Name:       PasswordInput
 Purpose:    Receive password input from user, verify with Argon2 hashing algorithm or create new password in none exist.
 Parameters: Command syntax tuple and boolean toggle switch.
 Returns:    Validate input hash and boolean toggle switch.
 ########################################################################################################################
-'''
+"""
 def PasswordInput(syntax_tuple: tuple, toggle: bool) -> tuple:
     count = 0
 
@@ -437,8 +453,7 @@ def PasswordInput(syntax_tuple: tuple, toggle: bool) -> tuple:
     storage_check = Globals.FILE_CHECK('.\\Dbs\\storage.db')
 
     # If all major components missing avoid StartCheck script #
-    if not key_check and not nonce_check and not dbKey_check \
-    and not db_check and not storage_check:
+    if not key_check and not nonce_check and not dbKey_check and not db_check and not storage_check:
         toggle = False
 
     while True:

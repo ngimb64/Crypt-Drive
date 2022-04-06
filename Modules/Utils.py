@@ -1,12 +1,17 @@
 # Built-in Modules #
-import os, logging, re, shlex, shutil, smtplib, sqlite3
+import os
+import logging
+import shlex
+import shutil
+import smtplib
+import sqlite3
+import sys
 from base64 import b64encode
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
-from sys import stderr
 from threading import BoundedSemaphore
 from time import sleep
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
@@ -20,49 +25,60 @@ from cryptography.fernet import Fernet
 # Custom Modules #
 import Modules.Globals as Globals
 
-# # Function Index #
-# -------------------
-# - FileHandler:    handlers file read / write operations
-# - HdCrawl:        checks user file system for missing component 
-# - KeyHandler:     deletes existing keys & dbs, calls function to make new components
-# - Logger:         encrypted logging system
-# - MakeKeys:       creates/encrypts keys and dbs, stores hash in application keyring
-# - MsgFormat:      formats email message headers, data, and attachments
-# - MsgSend:        facilitates sending email via TLS connection
-# - PrintErr:       prints er message the duration of the integer passed in
-# - QueryHandler:   Mydatabase query handling function for creating, populating, and retrieving data from dbs
-# - SystemCmd:      executes system shell command
+"""
+###################
+#  Function Index #
+########################################################################################################################
+FileHandler - Handles file read / write operations.
+HdCrawl - Checks user file system for missing component.
+KeyHandler - Deletes existing keys & dbs, calls function to make new components.
+Logger - Encrypted logging system.
+MakeKeys - Creates/encrypts keys and dbs, stores hash in application keyring.
+MsgFormat - Formats email message headers, data, and attachments.
+MsgSend - Facilitates sending email via TLS connection.
+PrintErr - Prints error message the duration of the integer passed in.
+QueryHandler - MySQL database query handling function for creating, populating, and retrieving data from dbs.
+SystemCmd - Executes system shell command.
+########################################################################################################################
+"""
 
-# File operation handler #
-def FileHandler(filename, op, password, operation=None, data=None):
+
+"""
+########################################################################################################################
+Name:       FileHandler
+Purpose:    Error validated file handler for read and write operations.
+Parameters: The filename, file operation, hashed password, read/write operation toggle, and input data toggle. 
+Returns:    None
+########################################################################################################################
+"""
+def FileHandler(filename: str, op: str, password: bytes, operation=None, data=None):
     count = 0
 
     # If no operation was specified #
-    if operation == None:
-        Logger('File IO Error: File opertion not specified\n', password,
-                operation='write', handler='error')
-        PrintErr('\n* File IO Error: File opertion not specified *\n', 2)
+    if not operation:
+        Logger('File IO Error: File operation not specified\n', password, operation='write', handler='error')
+        PrintErr('\n* File IO Error: File operation not specified *\n', 2)
         return
 
     # If read operation and file is missing #
     if operation == 'read' and not Globals.FILE_CHECK(filename):
-        Logger('File IO Error: File read attempted on either missing file\n',
-                password, operation='write', handler='error')
+        Logger('File IO Error: File read attempted on either missing file\n', password,
+               operation='write', handler='error')
         PrintErr('\n* File IO Error: File read attempted on either missing file *\n', 2)
         return
 
-    # If read operation and file does note have access #
+    # If read operation and file does not have access #
     if operation == 'read' and not os.access(filename, os.R_OK):
-        Logger('File IO Error: File read attempted on file with no access .. potenially already in use\n',
-                password, operation='write', handler='error')
-        PrintErr('\n* File IO Error: File read attempted on file with no access .. potenially already in use *\n', 2)
-        return        
+        Logger('File IO Error: File read attempted on file with no access .. potentially already in use\n', password,
+               operation='write', handler='error')
+        PrintErr('\n* File IO Error: File read attempted on file with no access .. potentially already in use *\n', 2)
+        return
 
-    # If write operation and file exists, but does note have access #
+    # If write operation and file exists, but does not have access #
     if operation == 'write' and Globals.FILE_CHECK(filename) and not os.access(filename, os.W_OK):
-        Logger('File IO Error: File write attempted on file with no access .. potenially already in use\n',
-                password, operation='write', handler='error')
-        PrintErr('\n* File IO Error: File opertion not specified *\n', 2)
+        Logger('File IO Error: File write attempted on file with no access .. potentially already in use\n', password,
+               operation='write', handler='error')
+        PrintErr('\n* File IO Error: File operation not specified *\n', 2)
         return
 
     while True:
@@ -72,20 +88,20 @@ def FileHandler(filename, op, password, operation=None, data=None):
                 if operation == 'read':
                     return file.read()
 
-                # If write operatiob was specified #
+                # If write operation was specified #
                 elif operation == 'write':
                     # If no data is present #
-                    if data == None:
+                    if not data:
                         Logger('File IO Error: Empty file buffered detected\n', password,
-                                operation='write', handler='error')
+                               operation='write', handler='error')
                         return
 
                     return file.write(data)
-                    
+
                 # If improper operation specified #
                 else:
-                    Logger('File IO Error: Improper file opertion attempted\n', password,
-                            operation='write', handler='error')
+                    Logger('File IO Error: Improper file operation attempted\n',
+                           password, operation='write', handler='error')
                     return
 
         # File error handling #
@@ -102,58 +118,73 @@ def FileHandler(filename, op, password, operation=None, data=None):
                      ' seconds before attempting again *\n', 2)
             count += 1
 
-# Recursive hardrive crawl data recovery mechanism #
-def HdCrawl(item):
+
+"""
+########################################################################################################################
+Name:       HdCrawl
+Purpose:    Recursive hard drive crawler for recovering missing components.
+Parameters: Name of the item to be recovered.
+Returns:    Boolean True/False whether operation was success/fail.
+########################################################################################################################
+"""
+def HdCrawl(item: str) -> bool:
     # Crawl through user directories #
-    for dirpath, dirnames, filenames in os.walk('C:\\Users\\', topdown=True):
-        for folder in dirnames:
+    for dir_path, dir_names, file_names in os.walk('C:\\Users\\', topdown=True):
+        for folder in dir_names:
             if folder == item == 'Dbs':
-                shutil.move(dirpath + '\\' + folder, '.\\Dbs')
+                shutil.move(f'{dir_path}\\{folder}', '.\\Dbs')
                 print(f'Folder: {item} recovered')
                 return True
 
             elif folder == item == 'DecryptDock':
-                shutil.move(dirpath + '\\' + folder, '.\\DecryptDock')
+                shutil.move(f'{dir_path}\\{folder}', '.\\DecryptDock')
                 print(f'Folder: {item} recovered')
                 return True
 
             elif folder == item == 'Import':
-                shutil.move(dirpath + '\\' + folder, '.\\Import')
+                shutil.move(f'{dir_path}\\{folder}', '.\\Import')
                 print(f'Folder: {item} recovered')
                 return True
 
             elif folder == item == 'Keys':
-                shutil.move(dirpath + '\\' + folder, '.\\Keys')
+                shutil.move(f'{dir_path}\\{folder}', '.\\Keys')
                 print(f'Folder: {item} recovered')
                 return True
 
             elif folder == item == 'UploadDock':
-                shutil.move(dirpath + '\\' + folder, '.\\UploadDock')
+                shutil.move(f'{dir_path}\\{folder}', '.\\UploadDock')
                 print(f'Folder: {item} recovered')
                 return True
 
-        for file in filenames:
+        for file in file_names:
             # If item matches .txt, move to Keys dir #
             if file == (item + '.txt'):
-                shutil.move(dirpath + '\\' + file, '.\\Keys\\' + file)
+                shutil.move(f'{dir_path}\\{file}', '.\\Keys\\' + file)
                 print(f'File: {item}.txt recovered')
                 return True
 
             # If item matches .db, move to DBs dir #
             elif file == (item + '.db'):
-                shutil.move(dirpath + '\\' + file, '.\\Dbs\\' + file)
+                shutil.move(f'{dir_path}\\{file}', '.\\Dbs\\' + file)
                 print(f'File: {item}.db recovered')
                 return True
 
     return False
 
-# Delete existing keys, create dbs, and call 
-# function to make a new set of keys #
-def KeyHandler(dbs, password):
+
+"""
+########################################################################################################################
+Name:       KeyHandler
+Purpose:    Delete existing keys, create dbs, and call function to create new key set.
+Parameters: The database tuple and hashed password.
+Returns:    None
+########################################################################################################################
+"""
+def KeyHandler(dbs: tuple, password: bytes):
     # Delete files if they exist #
-    for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt',
-    '.\\Keys\\nonce.txt', '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'): 
-        if Globals.FILE_CHECK(file) == True:
+    for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt', '.\\Keys\\nonce.txt',
+                 '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
+        if Globals.FILE_CHECK(file):
             os.remove(file)
 
     # Create databases #
@@ -163,17 +194,26 @@ def KeyHandler(dbs, password):
         elif db == 'storage':
             query = Globals.DB_STORAGE(db)
         else:
-            pass
+            continue
 
         QueryHandler(db, query, password, create=True)
 
     # Create encryption keys #
     MakeKeys(dbs[0], password)
 
-# Encrypted log handler #
-def Logger(msg, password, operation=None, handler=None):
+
+"""
+########################################################################################################################
+Name:       Logger
+Purpose:    Encrypted logging system.
+Parameters: Message to be logged, hashed password, log operation, and logging level handler.
+Returns:    None
+########################################################################################################################
+"""
+def Logger(msg: str, password: bytes, operation=None, handler=None):
     if Globals.LOG:
         log_name = '.\\cryptLog.log'
+        text = None
 
         # Check to see cryptographic components are present #
         key_check, nonce_check, dbKey_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt'), \
@@ -194,7 +234,7 @@ def Logger(msg, password, operation=None, handler=None):
         # Decrypt the local database key #
         crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
         db_key = aesccm.decrypt(nonce, crypt, password)
-                    
+
         # If data exists in log file #
         if Globals.FILE_CHECK(log_name):
             # Get log file size in bytes #
@@ -220,7 +260,7 @@ def Logger(msg, password, operation=None, handler=None):
                 logging.exception(msg)
             else:
                 logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
-            
+
             # Get log message in variable #
             log_msg = Globals.LOG_STREAM.getvalue()
 
@@ -239,12 +279,12 @@ def Logger(msg, password, operation=None, handler=None):
                         file.write(crypt)
 
             except (IOError, FileNotFoundError, Exception):
-                PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
+                PrintErr(f'\n* [ERROR] Error occurred writing {msg} to Logger *\n', 2)
 
         # If reading the log #
         elif operation == 'read':
             # If log file exists
-            if Globals.FILE_CHECK(log_name):     
+            if Globals.FILE_CHECK(log_name):
                 # If log file is empty .. return function #
                 if log_size == 0:
                     return
@@ -283,16 +323,24 @@ def Logger(msg, password, operation=None, handler=None):
                         file.write(crypt)
 
             except (IOError, FileNotFoundError, Exception):
-                PrintErr(f'\n* [ERROR] Error occured writing {msg} to Logger *\n', 2)
+                PrintErr(f'\n* [ERROR] Error occurred writing {msg} to Logger *\n', 2)
     else:
-        PrintErr(f'\n* [ERROR] Exception occured on startup script: {msg} *\n', 2)
+        PrintErr(f'\n* [ERROR] Exception occurred on startup script: {msg} *\n', 2)
 
-# Make cryptographic key-set #
-def MakeKeys(db, password):
+
+"""
+########################################################################################################################
+Name:       MakeKeys
+Purpose:    Creates a fresh cryptographic key set, encrypts, and inserts in keys database.
+Parameters: The database tuple, hashed password.
+Returns:    None
+########################################################################################################################
+"""
+def MakeKeys(db: str, password: bytes):
     # Fernet Symmetric HMAC key for dbs #
     db_key = Fernet.generate_key()
 
-    # ChaCha20 symmetric key (256 bit key, 128 bit nonce) #
+    # ChaCha20 symmetric key (256-bit key, 128-bit nonce) #
     upload_key = b64encode(os.urandom(32))
     cha_nonce = b64encode(os.urandom(16))
 
@@ -300,12 +348,12 @@ def MakeKeys(db, password):
     upload_key = Fernet(db_key).encrypt(upload_key)
     cha_nonce = Fernet(db_key).encrypt(cha_nonce)
 
-    # Send encrypted ChaCha20 key to keys database #
-    query =  Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
+    # Send encrypted ChaCha20 key to key's database #
+    query = Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
     QueryHandler(db, query, password)
 
     # Send encrypted ChaCha20 nonce to keys database # 
-    query =  Globals.DB_INSERT(db, 'upload_nonce', cha_nonce.decode('utf-8'))
+    query = Globals.DB_INSERT(db, 'upload_nonce', cha_nonce.decode('utf-8'))
     QueryHandler(db, query, password)
 
     # AESCCM password authenticated key #
@@ -324,8 +372,16 @@ def MakeKeys(db, password):
     FileHandler('.\\Keys\\aesccm.txt', 'wb', password, operation='write', data=key)
     FileHandler('.\\Keys\\nonce.txt', 'wb', password, operation='write', data=nonce)
 
-# Format email message #
-def MsgFormat(send_email, receiver, body, files):
+
+"""
+########################################################################################################################
+Name:       MsgFormat
+Purpose:    Format email message headers and attach passed in files.
+Parameters: Senders email address, receivers email address, message body, and files to be attached.
+Returns:    The formatted message with attachments.
+########################################################################################################################
+"""
+def MsgFormat(send_email: str, receiver: str, body: str, files: str):
     # Initial message object & format headers/body #
     msg = MIMEMultipart()
     msg['From'] = send_email
@@ -339,7 +395,7 @@ def MsgFormat(send_email, receiver, body, files):
         if not file:
             return msg
 
-        # Initalize stream to attach data #
+        # Initialize stream to attach data #
         p = MIMEBase('application', 'octet-stream')
         with open(file, 'rb') as attachment:
             p.set_payload(attachment.read())
@@ -351,13 +407,23 @@ def MsgFormat(send_email, receiver, body, files):
 
     return msg
 
-# Facilitate sending email #
-def MsgSend(send_email, receiver, password, msg):
+
+"""
+########################################################################################################################
+Name:       MsgSend
+Purpose:    Facilitate the sending of formatted emails.
+Parameters: Senders email address, receivers email address, hashed password, formatted message to be sent.
+Returns:    None
+########################################################################################################################
+"""
+def MsgSend(send_email: str, receiver: str, password: bytes, msg):
     # Initialize SMTP session with gmail server #
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as session:
-            # Upgrade session To TLS encryption & login #
-            session.starttls() ; session.login(send_email, password)
+            # Upgrade session To TLS encryption #
+            session.starttls()
+            # Login #
+            session.login(send_email, password)
             # Send email through established session #
             session.sendmail(send_email, receiver, msg.as_string())
             # Disconnect session #
@@ -366,13 +432,30 @@ def MsgSend(send_email, receiver, password, msg):
         PrintErr('\n* [ERROR] Remote email server connection failed *\n', 2)
         Logger(f'SMTP Error: {err}', password, operation='write', handler='error')
 
-# Timed error message #
-def PrintErr(msg, seconds):
-    print(msg, file=stderr)
+
+"""
+########################################################################################################################
+Name        PrintErr
+Purpose:    Displays error message for supplied time interval.
+Parameters: The message to be displayed and the time interval to be displayed in seconds.
+Returns:    None
+########################################################################################################################
+"""
+def PrintErr(msg: str, seconds: int):
+    print(msg, file=sys.stderr)
     sleep(seconds)
 
-# MySQL database query handler #
-def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=False):
+
+"""
+########################################################################################################################
+Name:       QueryHandler
+Purpose:    Facilitates MySQL database query execution.
+Parameters: Database to execute query, query to be executed, hashed password, create toggle, fetchone toggle, and \
+            fetchall toggle.
+Returns:    None
+########################################################################################################################
+"""
+def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=False, fetchall=False):
     # Change directory #
     os.chdir('.\\Dbs')
     # Sets maximum number of allowed db connections #
@@ -380,12 +463,13 @@ def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=Fal
     # Locks allowed connections to database #
     sema_lock = BoundedSemaphore(value=maxConns)
 
-    # Attempts to connnect .. continues if already connected #
+    # Attempts to connect, continues if already connected #
     with sema_lock:
         try:
             # Connect to passed in database #
-            conn = sqlite3.connect(f'{db}.db')  
-        except:
+            conn = sqlite3.connect(f'{db}.db')
+        # If database already exists #
+        except Error:
             pass
 
         # Executes query passed in #
@@ -394,14 +478,14 @@ def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=Fal
 
             # If creating database close connection
             # and moves back a directory #
-            if create == True:
+            if create:
                 conn.close()
                 os.chdir('.\\..')
                 return
 
             # Fetches entry from database then closes
             # connection and moves back a directory #
-            elif fetchone == True:
+            elif fetchone:
                 row = db_call.fetchone()
                 conn.close()
                 os.chdir('.\\..')
@@ -409,7 +493,7 @@ def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=Fal
 
             # Fetches all database entries then closes
             # connection and moves back a directory #
-            elif fetchall == True:
+            elif fetchall:
                 rows = db_call.fetchall()
                 conn.close()
                 os.chdir('.\\..')
@@ -422,37 +506,44 @@ def QueryHandler(db, query, password, create=False, fetchone=False, fetchall=Fal
 
         # Database query error handling #
         except (Warning, Error, DatabaseError, IntegrityError,
-        ProgrammingError, OperationalError, NotSupportedError) as err:
+                ProgrammingError, OperationalError, NotSupportedError) as err:
             # Prints general error #
-            PrintErr('\n* [ERROR] Database error occured *\n', 2)
+            PrintErr('\n* [ERROR] Database error occurred *\n', 2)
             # Moves back a directory #
             os.chdir('.\\..')
             # Passes log message to logging function #
-            Logger(f'SQL error: {err}\n', password, \
-                    operation='write', handler='error')
-        
+            Logger(f'SQL error: {err}\n', password, operation='write', handler='error')
+
         # Close connection #
         conn.close()
 
-# Run system command #
-def SystemCmd(cmd, stdout, stderr, exec_time, exif=False, cipher=False):
+
+"""
+########################################################################################################################
+Name:       SystemCmd
+Purpose:    Execute shell-escaped system command.
+Parameters: Command to be executed, standard output, standard error, execution timeout, exif toggle, cipher toggle.
+Returns:    None
+########################################################################################################################
+"""
+def SystemCmd(cmd: str, stdout, stderr, exec_time: int, exif=False, cipher=False):
     # Shell escape command string #
     exe = shlex.quote(cmd)
 
+    # Exif command to strip metadata #
+    if exif:
+        command = Popen(['python', '-m', 'exif_delete', '-r', exe], stdout=stdout, stderr=stderr, shell=False)
+    # Cipher command to scrub deleted data from hd #
+    elif cipher:
+        command = Popen(['cipher', f'/w:{exe}'], stdout=stdout, stderr=stderr, shell=False)
+    # For built-in Windows shell commands like cls #
+    else:
+        command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+
     try:
-        # Exif command to strip metadata #
-        if exif == True:
-            command = Popen(['python', '-m', 'exif_delete', '-r', exe], stdout=stdout, stderr=stderr, shell=False)
-        # Cipher command to scub deleted data from hd #
-        elif cipher == True:
-            command = Popen(['cipher', f'/w:{exe}'], stdout=stdout, stderr=stderr, shell=False)
-        # For built-in Windows shell commands like cls #
-        else:
-            command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+        command.communicate(exec_time)
 
-        outs, errs = command.communicate(exec_time)
-
-    # Handles process timeouts and errors # 
+    # Handles process timeouts and errors #
     except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
         command.kill()
-        outs, errs = command.communicate()
+        command.communicate()

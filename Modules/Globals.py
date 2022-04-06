@@ -1,3 +1,4 @@
+# Built-in modules #
 import os
 from io import StringIO
 
@@ -5,14 +6,14 @@ from io import StringIO
 global LOG, LOG_STREAM
 
 
-'''
+"""
 ########################################################################################################################
 Name:       Initialize
 Purpose:    Initializes variables for global access.
 Parameters: None
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def Initialize():
     global LOG, LOG_STREAM
 
@@ -23,10 +24,12 @@ def Initialize():
 
 
 # Check if directory exists #
-def DIR_CHECK(path: str) -> bool: return os.path.isdir(path)
+def DIR_CHECK(path: str) -> bool:
+    return os.path.isdir(path)
 
 # Check if file exists #
-def FILE_CHECK(path: str) -> bool: return os.path.isfile(path)
+def FILE_CHECK(path: str) -> bool:
+    return os.path.isfile(path)
 
 
 ''' MySQL database queries '''

@@ -5,14 +5,14 @@ import re
 from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
 
 
-'''
+"""
 ########################################################################################################################
 Name:       Install   
 Purpose:    Executes system command to install external packages through PIP.
 Parameters: Package name to be installed, standard out, standard error, execution timeout.
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def Install(package, stdout, stderr, exec_time):
     command = Popen(['pip', 'install', '--user', package], stdout=stdout, stderr=stderr, shell=False)
     try:
@@ -24,14 +24,14 @@ def Install(package, stdout, stderr, exec_time):
         command.communicate()
 
 
-'''
+"""
 ########################################################################################################################
 Name:       main
 Purpose:    Reads package file line by line, calls function to install external packages through PIP if regex matches.
 Parameters: None
 Returns:    None
 ########################################################################################################################
-'''
+"""
 def main():
     re_mod = re.compile(r'^[a-zA-Z0-9=\-.]{2,20}')
     filename = 'packages.txt'
