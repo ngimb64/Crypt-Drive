@@ -662,7 +662,8 @@ Returns:    None
 def Upload(dbs: tuple, password: bytes, local_path: str, abs_path: str):
     global parent_id
     encryptor = None
-    folder, prompt3 = None, None
+    folder = None
+    prompt3 = None
 
     # Prompt user if data being uploaded is in encrypted or plain text #
     while True:

@@ -23,6 +23,8 @@ def Initialize():
     LOG_STREAM = StringIO()
 
 
+""" File/Dir handlers """
+
 # Check if directory exists #
 def DIR_CHECK(path: str) -> bool:
     return os.path.isdir(path)
@@ -32,7 +34,7 @@ def FILE_CHECK(path: str) -> bool:
     return os.path.isfile(path)
 
 
-''' MySQL database queries '''
+""" MySQL database queries """
 
 # Create keys database #
 def DB_KEYS(db: str) -> str:

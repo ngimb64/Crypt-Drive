@@ -576,11 +576,11 @@ if __name__ == '__main__':
         try:
             MainMenu(dbs, password, cmds, abs_path)
 
+        except KeyboardInterrupt:
+            PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
+            break
+
         except Exception as err:
             PrintErr('\n* [EXCEPTION] Exception occurred .. check log *\n', 2)
             Logger(f'Exception occurred: {err}\n', password, operation='write', handler='exception')
             continue
-
-        except KeyboardInterrupt:
-            PrintErr('\n\n* [EXIT] Ctrl + c detected .. exiting *', 2)
-            break
