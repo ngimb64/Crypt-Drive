@@ -13,6 +13,7 @@
 - Once virtual env is built traverse to the Scripts directory in the environment folder just created.
 - In the Scripts directory, execute the "activate" script to activate the virtual environment.<br>
 <br>
+
 - Create a gmail account or login to existing account.
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
   https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
