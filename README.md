@@ -5,14 +5,19 @@
 - Made on Windows 10, written in Python 3.9
 
 ## Installation
-- Create a gmail account or login to existing account
+- Run the setup.py script to build a virtual environment and install all external packages in the created venv.
+
+> Example:<br>
+> python3 setup.py "venv name"
+
+- Once virtual env is built traverse to the Scripts directory in the environment folder just created.
+- In the Scripts directory, execute the "activate" script to activate the virtual environment.<br>
+<br>
+- Create a gmail account or login to existing account.
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
   https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
 - Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml
   file where specified, which saves credentials after the first use of api. Then rename the file to settings.yaml.
-- Run setup.py <env name> to build virtual environment, any packages in packages.txt will be installed in the created venv.
-- Once virtual env is built traverse to the Scripts directory in the environment folder just created.
-- In the Scripts directory, execute the "activate" script to activate the virtual environment.
 
 ## Purpose
 Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password 
