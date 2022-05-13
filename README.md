@@ -10,7 +10,7 @@
 > Example:<br>
 > python3 setup.py "venv name"
 
-- Once virtual env is built traverse to the Scripts directory in the environment folder just created.
+- Once virtual env is built move to the Scripts directory in the environment folder just created.
 - In the Scripts directory, execute the "activate" script to activate the virtual environment.<br>
 <br>
 
