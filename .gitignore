@@ -1,8 +1,8 @@
 # Folders to ignore
-Dbs/
+CryptDbs/
 DecryptDock/
-Import/
-Keys/
+CryptImport/
+CryptKeys/
 Resource_Files/
 UploadDock/
 Modules/__pycache__/
@@ -13,3 +13,4 @@ cryptLog.log
 credentials.json
 settings.yaml
 To-Do.txt
+AppSecret.txt

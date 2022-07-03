@@ -2,7 +2,7 @@
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
 
 ## Prereqs
-- Made on Windows 10, written in Python 3.9
+- Made for Windows and Linux, written in Python 3.9
 
 ## Installation
 - Run the setup.py script to build a virtual environment and install all external packages in the created venv.
@@ -19,16 +19,21 @@
   https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
 - Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml
   file where specified, which saves credentials after the first use of api. Then rename the file to settings.yaml.
+- Once the API credentials are saved, turn in two-factor authentication in security settings in google account. After
+  that is set, an Application Password can be generated in Google account settings and need to be saved in the base
+  directory in CryptDrive as a file named AppSecret.txt.
+- The API credentials are for Drive authentication and the AppSecret.txt is for Gmail authentication.
 
 ## Purpose
 Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password 
 protected database, while giving the user to share the unlock key & nonce via a temporary password protected 
 encryption through emails & a password provided via sms text message. After unlock components are received
 the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
-Crypt Drive also is able to store and rebuild recursive file systems through encrypted databases. It also features
-a startup script that check the programs components such as keys and databases. If components are missing, the 
-program checks the recycling bin and file system in an attempt to recover it. If the recovery fails, new components
-are created and the data must be re-uploaded with the new key set to be able to decrypt it.
+Crypt Drive also is able to store and rebuild recursive file systems through encrypted databases.
+
+It also features a startup script that check the programs components such as keys and databases. If components are 
+missing, the program checks the recycling bin and file system in an attempt to recover it. If the recovery fails, 
+new components are created and the data must be re-uploaded with the new key set to be able to decrypt it.
 
 ### Encryption scheme:
 - Database Unlock & Sharing - Authenticated AES 256 counter mode CBC with 104 bit nonce & CBC-MAC (CCM) integrity check

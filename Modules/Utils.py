@@ -1,4 +1,5 @@
 # Built-in Modules #
+import errno
 import os
 import logging
 import shlex
@@ -6,80 +7,364 @@ import shutil
 import smtplib
 import sqlite3
 import sys
-from base64 import b64encode
+import time
+from base64 import b64encode, b64decode
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
 from threading import BoundedSemaphore
-from time import sleep
 from sqlite3 import Warning, Error, DatabaseError, IntegrityError, \
                     ProgrammingError, OperationalError, NotSupportedError
 
-# Third-party Modules #
+# External Modules #
 import keyring
+from argon2 import PasswordHasher
+from exif import Image
+from cryptography.exceptions import InvalidTag
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-from cryptography.fernet import Fernet
 
 # Custom Modules #
 import Modules.Globals as Globals
 
+
 """
-###################
-#  Function Index #
+##################
+# Function Index #
 ########################################################################################################################
+ChaAlgoInit - Initializes the ChaCh20 algorithm object.
+ChaChaDecrypt - Retrieve ChaCha components from Keys db, decode and decrypt, then initialize algo object.
+ComponentHandler - Creates various dir, db, and key components required for program operation.
+CreateDatabases - Creates database components.
+CreateDirs - Creates program component directories.
+DataCopy - Copies data from source to destination.
+DbCheck - Checks the upload contents within the keys database and populates authentication object.
+DecryptDbData - Decodes and decrypts database base64 cipher data.
+EncryptDbData - Encrypts and encodes plain data for database.
+ErrorQuery - Looks up errno message to get description.
+FetchUploadComps - Retrieves upload components from keys database.
 FileHandler - Handles file read / write operations.
+GetDatabaseComp - Unlock and retrieve database cryptography component.
 HdCrawl - Checks user file system for missing component.
 KeyHandler - Deletes existing keys & dbs, calls function to make new components.
 Logger - Encrypted logging system.
-MakeKeys - Creates/encrypts keys and dbs, stores hash in application keyring.
+MetaStrip - Attempts to strip the metadata from passed in file. If attempt fails, it waits a second and tries again. \
+            If 3 failed attempts occur, it returns a False boolean value.
 MsgFormat - Formats email message headers, data, and attachments.
 MsgSend - Facilitates sending email via TLS connection.
 PrintErr - Prints error message the duration of the integer passed in.
 QueryHandler - MySQL database query handling function for creating, populating, and retrieving data from dbs.
 SystemCmd - Executes system shell command.
+WriteLog - Parse new log message to old data and write encrypted result to log.
 ########################################################################################################################
 """
+
+
+"""
+########################################################################################################################
+Name:       ChaAlgoInit
+Purpose:    Initializes the ChaCh20 algorithm object.
+Parameters: The key and nonce to initialize the algorithm.
+Returns:    Initialized algorithm object.
+########################################################################################################################
+"""
+def ChaAlgoInit(key: bytes, nonce: bytes) -> object:
+    # Initialize ChaCha20 encryption algo #
+    algo = algorithms.ChaCha20(key, nonce)
+    # Return the initialized ChaCha20 cipher object #
+    return Cipher(algo, mode=None)
+
+
+"""
+########################################################################################################################
+Name:       ChaChaDecrypt
+Purpose:    Retrieve ChaCha components from Keys db, decoding and decrypting them.
+Parameters: The authentication object and keys database.
+Returns:    The decrypted ChaCha20 key and nonce.
+########################################################################################################################
+"""
+def ChaChaDecrypt(auth_obj: object, db: str) -> tuple:
+    # Get the decrypted database key #
+    db_key = GetDatabaseComp(auth_obj)
+    # Attempt to Retrieve the upload key and nonce from Keys db #
+    key_call, nonce_call = FetchUploadComps(db, 'upload_key', 'upload_nonce', auth_obj)
+
+    # If decrypt key doesn't exist in db #
+    if not key_call or not nonce_call:
+        PrintErr('Database missing decrypt component .. exit and restart program to fix issue', 2)
+        return
+
+    # Decrypt key & nonce #
+    decrypt_key = DecryptDbData(db_key, key_call[1])
+    decrypt_nonce = DecryptDbData(db_key, nonce_call[1])
+
+    return decrypt_key, decrypt_nonce
+
+
+"""
+########################################################################################################################
+Name:       ComponentHandler
+Purpose:    Creates various dir, db, and key components required for program operation.
+Parameters: The database tuple, user secret input, and authentication object.
+Returns:    Populated authentication object.
+########################################################################################################################
+"""
+def ComponentHandler(db_tuple: tuple, user_input: str, auth_obj: object) -> object:
+    # Create any missing dirs #
+    CreateDirs()
+    # Create database components #
+    CreateDatabases(db_tuple)
+    # Create fresh cryptographic key set #
+    return MakeKeys(db_tuple[0], user_input, auth_obj)
+
+
+"""
+########################################################################################################################
+name:       CreateDatabases
+purpose:    creates database components.
+parameters: the database tuple.
+returns:    Nothing
+########################################################################################################################
+"""
+def CreateDatabases(dbs: tuple):
+    # Iterate through db tuple #
+    for db in dbs:
+        if db == 'crypt_keys':
+            query = Globals.DB_KEYS(db)
+        elif db == 'crypt_storage':
+            query = Globals.DB_STORAGE(db)
+        else:
+            continue
+
+        QueryHandler(db, query, None, create=True)
+
+
+"""
+########################################################################################################################
+Name:       CreateDirs
+Purpose:    Creates program component directories.
+Parameters: Nothing
+Returns:    Nothing
+########################################################################################################################
+"""
+def CreateDirs():
+    # Iterate through folders #
+    for directory in Globals.DIRS:
+        # If folder is missing #
+        if directory in Globals.MISSING:
+            # Create missing folder #
+            os.mkdir(directory)
+
+
+"""
+########################################################################################################################
+Name:       DataCopy
+Purpose:    Copies data from source to destination.
+Parameters: The source path of item to be copied and the destination path where the item will be copied, then deletes \
+            the source file.
+Returns:    Nothing
+########################################################################################################################
+"""
+def DataCopy(source: str, dest: str):
+    try:
+        # Copy file, modify if already exists #
+        shutil.copy(source, dest)
+
+    # If file already exists #
+    except (shutil.Error, OSError):
+        pass
+
+    # Delete source file #
+    SecureDelete(source)
+
+
+"""
+########################################################################################################################
+Name:       DbCheck
+Purpose:    Checks the upload contents within the keys database and populates authentication object.
+Parameters: Database tuple, input password to be confirmed, and authentication object.
+Returns:    Populated authentication object.
+########################################################################################################################
+"""
+def DbCheck(db: str, secret: bytes, auth_obj: object) -> object:
+    # Load AESCCM decrypt components #
+    key = FileHandler(Globals.FILES[0], 'rb', None, operation='read')
+    nonce = FileHandler(Globals.FILES[1], 'rb', None, operation='read')
+    crypt = FileHandler(Globals.FILES[2], 'rb', None, operation='read')
+    secret_key = FileHandler(Globals.FILES[3], 'rb', None, operation='read')
+    aesccm = AESCCM(key)
+    db_key = None
+
+    # Unlock the local database key #
+    try:
+        db_key = aesccm.decrypt(nonce, crypt, secret)
+
+    # If authentication tag is invalid #
+    except (InvalidTag, TypeError):
+        PrintErr('Incorrect unlock password entered', 2)
+        exit(2)
+
+    # Encrypt the input password #
+    crypt_secret = Fernet(secret_key).encrypt(secret)
+
+    # Populate the authentication object #
+    auth_obj.aesccm = key
+    auth_obj.nonce = nonce
+    auth_obj.db_key = crypt
+    auth_obj.secret_key = secret_key
+    auth_obj.password = crypt_secret
+
+    # Retrieve upload key from database #
+    query = Globals.DB_RETRIEVE(db, 'upload_key')
+    upload_call = QueryHandler(db, query, None, fetchone=True)
+
+    # Retrieve nonce from database #
+    query = Globals.DB_RETRIEVE(db, 'upload_nonce')
+    nonce_call = QueryHandler(db, query, None, fetchone=True)
+
+    # If the upload key call fails #
+    if not upload_call or not nonce_call:
+        # Display error and ensure it is being fixed #
+        PrintErr('Database missing upload component .. creating new key & upload to db\n'
+                 'Data will need to be re uploaded with new key otherwise decryption will fail', 2)
+
+        if not upload_call:
+            print('Creating new upload key ..')
+            # Create new encrypted upload key #
+            crypt_key = Fernet(db_key).encrypt(os.urandom(32))
+            # Base64 encode encrypted upload key for db storage #
+            upload_key = b64encode(crypt_key)
+
+            # Send upload key to key database #
+            query = Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
+            QueryHandler(db, query, None)
+
+        if not nonce_call:
+            print('Creating new upload nonce')
+            # Create new encrypted upload nonce #
+            crypt_nonce = Fernet(db_key).encrypt(os.urandom(16))
+            # Base64 encoded encrypted upload nonce for storage #
+            nonce = b64encode(crypt_nonce)
+
+            # Send nonce to keys database #
+            query = Globals.DB_INSERT(db, 'upload_nonce', nonce.decode('utf-8'))
+            QueryHandler(db, query, None)
+    else:
+        # Confirm retrieved upload key/nonce properly decode & decrypt #
+        _ = DecryptDbData(db_key, upload_call[1])
+        _ = DecryptDbData(db_key, nonce_call[1])
+
+    # Return the populated auth object #
+    return auth_obj
+
+
+"""
+########################################################################################################################
+name:       DecryptDbData     
+purpose:    Decodes and decrypts database base64 cipher data.
+parameters: The decrypted Fernet key and the cipher data to be decrypted.
+returns:    Decrypted cipher data.
+########################################################################################################################
+"""
+def DecryptDbData(decrypted_key: bytes, crypt_data: bytes) -> bytes:
+    # Decode base64 encoding on stored data #
+    decoded_data = b64decode(crypt_data)
+
+    try:
+        # Decrypt decoded cipher data #
+        plain_data = Fernet(decrypted_key).decrypt(decoded_data)
+
+    # If invalid token or encoding error #
+    except (InvalidToken, TypeError, Error) as err:
+        PrintErr(f'Error occurred during fernet data decryption: {err}', 2)
+        sys.exit(3)
+
+    # Return decrypted data #
+    return plain_data
+
+
+"""
+########################################################################################################################
+name:       EncryptDbData  
+purpose:    Encrypts and encodes plain data for database.
+parameters: The decrypted Fernet key and the plain text data to be encrypted.
+returns:    The encoded cipher data ready for database storage.
+########################################################################################################################
+"""
+def EncryptDbData(decrypted_key: bytes, plain_data: bytes) -> str:
+    try:
+        # Encrypt the plain text data #
+        crypt_data = Fernet(decrypted_key).encrypt(plain_data)
+
+    # If invalid token or encoding error #
+    except (InvalidToken, TypeError, Error) as err:
+        PrintErr(f'Error occurred during fernet data decryption: {err}', 2)
+        sys.exit(3)
+
+    # Return encrypted data in base64 format #
+    return b64encode(crypt_data).decode()
+
+
+"""
+########################################################################################################################
+Name:       ErrorQuery
+Purpose:    Looks up the errno message to get description.
+Parameters: Errno message, file mode, and error message object.
+Returns:    Nothing
+########################################################################################################################
+"""
+def ErrorQuery(err_path: str, err_mode: str, err_obj: object):
+    # If file does not exist #
+    if err_obj.errno == errno.ENOENT:
+        PrintErr(f'{err_path} does not exist', 2)
+
+    # If the file does not have read/write access #
+    elif err_obj.errno == errno.EPERM:
+        PrintErr(f'{err_path} does not have permissions for {err_mode} file mode, if file exists confirm it is closed', 2)
+
+    # File IO error occurred #
+    elif err_obj.errno == errno.EIO:
+        PrintErr(f'IO error occurred during {err_mode} mode on {err_path}', 2)
+
+    # If other unexpected file operation occurs #
+    else:
+        PrintErr(f'Unexpected file operation occurred accessing {err_path}: {err_obj.errno}', 2)
+
+
+"""
+########################################################################################################################
+Name:       FetchUploadComps
+Purpose:    Retrieves upload components from keys database. 
+Parameters: The keys database, key name to be retrieved, nonce name to be retrieved, and authentication object.
+Returns:    Decrypt key and nonce query results.
+########################################################################################################################
+"""
+def FetchUploadComps(db: str, key_name: str, nonce_name: str, auth_obj: object) -> tuple:
+    # Retrieve decrypt key from database #
+    query = Globals.DB_RETRIEVE(db, key_name)
+    decrypt_query = QueryHandler(db, query, auth_obj, fetchone=True)
+
+    # Retrieve nonce from database #
+    query = Globals.DB_RETRIEVE(db, nonce_name)
+    nonce_query = QueryHandler(db, query, auth_obj, fetchone=True)
+
+    # Return fetched query results #
+    return decrypt_query, nonce_query
 
 
 """
 ########################################################################################################################
 Name:       FileHandler
 Purpose:    Error validated file handler for read and write operations.
-Parameters: The filename, file operation, hashed password, read/write operation toggle, and input data toggle. 
-Returns:    None
+Parameters: The filename, file operation, password object, read/write operation toggle, and input data toggle. 
+Returns:    Nothing
 ########################################################################################################################
 """
-def FileHandler(filename: str, op: str, password: bytes, operation=None, data=None):
+def FileHandler(filename: str, op: str, auth_obj: object, operation=None, data=None):
     count = 0
-
-    # If no operation was specified #
-    if not operation:
-        Logger('File IO Error: File operation not specified\n', password, operation='write', handler='error')
-        PrintErr('\n* File IO Error: File operation not specified *\n', 2)
-        return
-
-    # If read operation and file is missing #
-    if operation == 'read' and not Globals.FILE_CHECK(filename):
-        Logger('File IO Error: File read attempted on either missing file\n', password,
-               operation='write', handler='error')
-        PrintErr('\n* File IO Error: File read attempted on either missing file *\n', 2)
-        return
-
-    # If read operation and file does not have access #
-    if operation == 'read' and not os.access(filename, os.R_OK):
-        Logger('File IO Error: File read attempted on file with no access .. potentially already in use\n', password,
-               operation='write', handler='error')
-        PrintErr('\n* File IO Error: File read attempted on file with no access .. potentially already in use *\n', 2)
-        return
-
-    # If write operation and file exists, but does not have access #
-    if operation == 'write' and Globals.FILE_CHECK(filename) and not os.access(filename, os.W_OK):
-        Logger('File IO Error: File write attempted on file with no access .. potentially already in use\n', password,
-               operation='write', handler='error')
-        PrintErr('\n* File IO Error: File operation not specified *\n', 2)
-        return
 
     while True:
         try:
@@ -87,36 +372,49 @@ def FileHandler(filename: str, op: str, password: bytes, operation=None, data=No
                 # If read operation was specified #
                 if operation == 'read':
                     return file.read()
-
                 # If write operation was specified #
                 elif operation == 'write':
-                    # If no data is present #
-                    if not data:
-                        Logger('File IO Error: Empty file buffered detected\n', password,
-                               operation='write', handler='error')
-                        return
-
                     return file.write(data)
-
                 # If improper operation specified #
                 else:
-                    Logger('File IO Error: Improper file operation attempted\n',
-                           password, operation='write', handler='error')
+                    PrintErr('File IO Error: Improper file operation attempted', 2)
+                    # If password is set #
+                    if Globals.HAS_KEYS:
+                        # Log error #
+                        Logger('File IO Error: Improper file operation attempted\n\n',
+                               auth_obj, operation='write', handler='error')
                     return
 
-        # File error handling #
-        except (IOError, FileNotFoundError, Exception) as err:
+        # If error occurs during file operation #
+        except (IOError, FileNotFoundError, OSError) as err:
+            # Look up file error #
+            ErrorQuery(filename, op, err)
+
+            # If password is set #
+            if Globals.HAS_KEYS:
+                Logger(f'File IO Error: {err}\n\n', auth_obj, operation='write', handler='error')
+
+            # If three consecutive IO errors occur #
             if count == 3:
-                PrintErr('\n* [ERROR] Maximum consecutive File IO errors'
-                         ' detected .. check log & contact support *\n', 4)
+                PrintErr('Maximum consecutive File IO errors detected .. check log & contact support', None)
                 exit(3)
 
-            print(f'\nIO Error: {err}\n')
-
-            Logger(f'File IO Error: {err}\n', password, operation='write', handler='error')
-            PrintErr('\n* [ERROR] File Lock/IO failed .. waiting 5'
-                     ' seconds before attempting again *\n', 2)
             count += 1
+
+
+"""
+########################################################################################################################
+Name:       GetDatabaseComp
+Purpose:    Unlock and retrieve database cryptography component.
+Parameters: The authentication object.
+Returns:    The decrypted database decryption key.
+########################################################################################################################
+"""
+def GetDatabaseComp(auth_obj: object) -> bytes:
+    # Decrypt the password #
+    plain = auth_obj.GetPlainSecret()
+    # Decrypt the local database key #
+    return auth_obj.DecryptDbKey(plain)
 
 
 """
@@ -128,78 +426,65 @@ Returns:    Boolean True/False whether operation was success/fail.
 ########################################################################################################################
 """
 def HdCrawl(item: str) -> bool:
+    # If OS is Windows #
+    if os.name == 'nt':
+        crawl_path = 'C:\\Users'
+    # If OS is Linux #
+    else:
+        crawl_path = '\\home'
+
     # Crawl through user directories #
-    for dir_path, dir_names, file_names in os.walk('C:\\Users\\', topdown=True):
+    for dir_path, dir_names, file_names in os.walk(crawl_path, topdown=True):
+        # Iterate through folders in current dir #
         for folder in dir_names:
-            if folder == item == 'Dbs':
-                shutil.move(f'{dir_path}\\{folder}', '.\\Dbs')
+            # If the folder and item are CryptDbs #
+            if folder == item == 'CryptDbs':
+                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[0])
                 print(f'Folder: {item} recovered')
                 return True
 
+            # If the folder and item are CryptImport #
+            elif folder == item == 'CryptImport':
+                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[1])
+                print(f'Folder: {item} recovered')
+                return True
+
+            # If the folder and item are CryptKeys #
+            elif folder == item == 'CryptKeys':
+                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[2])
+                print(f'Folder: {item} recovered')
+                return True
+
+            # If the folder and item are DecryptDock #
             elif folder == item == 'DecryptDock':
-                shutil.move(f'{dir_path}\\{folder}', '.\\DecryptDock')
+                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[3])
                 print(f'Folder: {item} recovered')
                 return True
 
-            elif folder == item == 'Import':
-                shutil.move(f'{dir_path}\\{folder}', '.\\Import')
-                print(f'Folder: {item} recovered')
-                return True
-
-            elif folder == item == 'Keys':
-                shutil.move(f'{dir_path}\\{folder}', '.\\Keys')
-                print(f'Folder: {item} recovered')
-                return True
-
+            # If the folder and item are UploadDock #
             elif folder == item == 'UploadDock':
-                shutil.move(f'{dir_path}\\{folder}', '.\\UploadDock')
+                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[4])
                 print(f'Folder: {item} recovered')
                 return True
 
+        # Iterate through files in current dir #
         for file in file_names:
-            # If item matches .txt, move to Keys dir #
-            if file == (item + '.txt'):
-                shutil.move(f'{dir_path}\\{file}', '.\\Keys\\' + file)
-                print(f'File: {item}.txt recovered')
-                return True
+            # If file is text #
+            if file.endswith('txt') and file == f'{item}.txt':
+                # If file is one of the key components #
+                if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
+                    DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[2]}\\{file}')
+                    print(f'File: {item}.txt recovered')
+                    return True
 
-            # If item matches .db, move to DBs dir #
-            elif file == (item + '.db'):
-                shutil.move(f'{dir_path}\\{file}', '.\\Dbs\\' + file)
-                print(f'File: {item}.db recovered')
-                return True
+            # If file is database #
+            elif file.endswith('.db') and file == f'{item}.db':
+                if file in ('crypt_keys.db', 'crypt_storage.db'):
+                    DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[0]}\\{file}')
+                    print(f'File: {item}.db recovered')
+                    return True
 
     return False
-
-
-"""
-########################################################################################################################
-Name:       KeyHandler
-Purpose:    Delete existing keys, create dbs, and call function to create new key set.
-Parameters: The database tuple and hashed password.
-Returns:    None
-########################################################################################################################
-"""
-def KeyHandler(dbs: tuple, password: bytes):
-    # Delete files if they exist #
-    for file in ('.\\Keys\\db_crypt.txt', '.\\Keys\\aesccm.txt', '.\\Keys\\nonce.txt',
-                 '.\\Dbs\\keys.db', '.\\Dbs\\storage.db'):
-        if Globals.FILE_CHECK(file):
-            os.remove(file)
-
-    # Create databases #
-    for db in dbs:
-        if db == 'keys':
-            query = Globals.DB_KEYS(db)
-        elif db == 'storage':
-            query = Globals.DB_STORAGE(db)
-        else:
-            continue
-
-        QueryHandler(db, query, password, create=True)
-
-    # Create encryption keys #
-    MakeKeys(dbs[0], password)
 
 
 """
@@ -207,154 +492,114 @@ def KeyHandler(dbs: tuple, password: bytes):
 Name:       Logger
 Purpose:    Encrypted logging system.
 Parameters: Message to be logged, hashed password, log operation, and logging level handler.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
-def Logger(msg: str, password: bytes, operation=None, handler=None):
-    if Globals.LOG:
-        log_name = '.\\cryptLog.log'
-        text = None
+def Logger(msg: str, auth_obj: object, operation=None, handler=None):
+    log_name = f'{Globals.CWD}\\cryptLog.log'
+    text = None
 
-        # Check to see cryptographic components are present #
-        key_check, nonce_check, dbKey_check = Globals.FILE_CHECK('.\\Keys\\aesccm.txt'), \
-                                              Globals.FILE_CHECK('.\\Keys\\nonce.txt'), \
-                                              Globals.FILE_CHECK('.\\Keys\\db_crypt.txt')
+    # Decrypt the password #
+    plain = auth_obj.GetPlainSecret()
+    # Decrypt the local database key #
+    db_key = auth_obj.DecryptDbKey(plain)
 
-        # If cryptographic component is missing print error & exit function #
-        if not key_check or not nonce_check or not dbKey_check:
-            PrintErr('\n* [ERROR] Attempt to access decrypt log missing'
-                     f' unlock components logging ..\n{msg} *\n', 2)
-            return
+    # If read operation and log file exists #
+    if operation == 'read' and Globals.FILE_CHECK(log_name):
+        # Get log file size in bytes #
+        log_size = os.stat(log_name).st_size
 
-        # Load AESCCM components #
-        key = FileHandler('.\\Keys\\aesccm.txt', 'rb', password, operation='read')
-        nonce = FileHandler('.\\Keys\\nonce.txt', 'rb', password, operation='read')
-        aesccm = AESCCM(key)
+        # If log has data in it #
+        if log_size > 0:
+            # Read the encrypted log data #
+            crypt = FileHandler(log_name, 'rb', auth_obj, operation='read')
+            # Decrypt the encrypted log data #
+            plain = DecryptDbData(db_key, crypt)
+            # Decode byte data #
+            text = plain.decode()
+    # If log file does not exist #
+    else:
+        # Set artificially low value #
+        log_size = -1
 
-        # Decrypt the local database key #
-        crypt = FileHandler('.\\Keys\\db_crypt.txt', 'rb', password, operation='read')
-        db_key = aesccm.decrypt(nonce, crypt, password)
-
-        # If data exists in log file #
-        if Globals.FILE_CHECK(log_name):
-            # Get log file size in bytes #
-            log_size = os.stat(log_name).st_size
-
-            # If log has data in it #
-            if log_size > 0:
-                # Decrypt the cryptLog #
-                crypt = FileHandler(log_name, 'rb', password, operation='read')
-                plain = Fernet(db_key).decrypt(crypt)
-                text = plain.decode()
+    # If writing to the log #
+    if operation == 'write':
+        # If writing error #
+        if handler == 'error':
+            logging.error(f'\n\n{msg}\n')
+        # If writing exception #
+        elif handler == 'exception':
+            logging.exception(f'\n\n{msg}\n')
         else:
-            # Set artificially low value #
-            log_size = -1
+            logging.error(f'\n\nError message write: \"{msg}\" provided '
+                          'without proper handler parameter\n')
 
-        # If writing to the log #
-        if operation == 'write':
-            # If writing error #
-            if handler == 'error':
-                logging.error(msg)
-            # If writing exception #
-            elif handler == 'exception':
-                logging.exception(msg)
-            else:
-                logging.error(f'Error message write: \"{msg}\" provided without proper handler parameter\n')
+        # If the file already has text #
+        if text:
+            WriteLog(log_name, db_key)
+        else:
+            WriteLog(log_name, db_key)
 
-            # Get log message in variable #
-            log_msg = Globals.LOG_STREAM.getvalue()
+    # If reading the log #
+    elif operation == 'read':
+        # If log file is has data, read it #
+        if log_size > 0:
+            count = 0
 
-            try:
-                with open(log_name, 'wb') as file:
-                    # If log has data & is less than the 25 mb max size #
-                    if 0 < log_size < 26214400:
-                        # Append new log message to existing log #
-                        log_parse = text + '\n' + log_msg
-                        # Encrypt log data & store on file #
-                        crypt = Fernet(db_key).encrypt(log_parse.encode())
-                        file.write(crypt)
-                    else:
-                        # Encrypt log data & store on file #
-                        crypt = Fernet(db_key).encrypt(log_msg.encode())
-                        file.write(crypt)
-
-            except (IOError, FileNotFoundError, Exception):
-                PrintErr(f'\n* [ERROR] Error occurred writing {msg} to Logger *\n', 2)
-
-        # If reading the log #
-        elif operation == 'read':
-            # If log file exists
-            if Globals.FILE_CHECK(log_name):
-                # If log file is empty .. return function #
-                if log_size == 0:
-                    return
-                else:
+            # Print log page by page #
+            for line in text.split('\n'):
+                if count == 60:
+                    input('Hit enter to continue ')
                     count = 0
 
-                    # Print log page by page #
-                    for line in text.split('\n'):
-                        if count == 60:
-                            input('Hit enter to continue ')
-                            count = 0
+                print(line)
+                count += 1
 
-                        print(line)
-                        count += 1
-
-                    input('Hit enter to continue ')
-
-        # If operation not specified #
+            input('Hit enter to continue ')
         else:
-            logging.error('No logging operation specified')
+            PrintErr('No data to read in log file', 2)
 
-            # Get log message in variable #
-            log_msg = Globals.LOG_STREAM.getvalue()
-            try:
-                with open(log_name, 'wb') as file:
-                    # If log has data & is less than the 25 mb max size #
-                    if 0 < log_size < 26214400:
-                        # Append new log message to existing log #
-                        log_parse = text + '\n' + log_msg
-                        # Encrypt log data & store on file #
-                        crypt = Fernet(db_key).encrypt(log_parse.encode())
-                        file.write(crypt)
-                    else:
-                        # Encrypt log data & store on file #
-                        crypt = Fernet(db_key).encrypt(log_msg.encode())
-                        file.write(crypt)
-
-            except (IOError, FileNotFoundError, Exception):
-                PrintErr(f'\n* [ERROR] Error occurred writing {msg} to Logger *\n', 2)
+    # If operation not specified #
     else:
-        PrintErr(f'\n* [ERROR] Exception occurred on startup script: {msg} *\n', 2)
+        logging.error('\n\nNo logging operation specified\n')
+
+        # If the file already has text #
+        if text:
+            WriteLog(log_name, db_key)
+        else:
+            WriteLog(log_name, db_key)
 
 
 """
 ########################################################################################################################
 Name:       MakeKeys
 Purpose:    Creates a fresh cryptographic key set, encrypts, and inserts in keys database.
-Parameters: The database tuple, hashed password.
-Returns:    None
+Parameters: The database tuple, hashed password, and authentication object.
+Returns:    The populated authentication object.
 ########################################################################################################################
 """
-def MakeKeys(db: str, password: bytes):
-    # Fernet Symmetric HMAC key for dbs #
+def MakeKeys(db: str, password: str, auth_obj: object) -> object:
+    bytes_pass = password.encode()
+
+    # Initialize argon2 hasher #
+    pass_algo = PasswordHasher()
+    # Hash the input password #
+    input_hash = pass_algo.hash(bytes_pass)
+
+    # Fernet Symmetric HMAC key for dbs and secret #
     db_key = Fernet.generate_key()
+    secret_key = Fernet.generate_key()
 
-    # ChaCha20 symmetric key (256-bit key, 128-bit nonce) #
-    upload_key = b64encode(os.urandom(32))
-    cha_nonce = b64encode(os.urandom(16))
+    # Encrypt ChaCha20 symmetric components (256-bit key, 128-bit nonce) #
+    upload_key = Fernet(db_key).encrypt(os.urandom(32))
+    cha_nonce = Fernet(db_key).encrypt(os.urandom(16))
 
-    # Encrypt ChaCha20 upload components #
-    upload_key = Fernet(db_key).encrypt(upload_key)
-    cha_nonce = Fernet(db_key).encrypt(cha_nonce)
+    # Base64 encode upload components for db storage #
+    upload_key = b64encode(upload_key)
+    cha_nonce = b64encode(cha_nonce)
 
-    # Send encrypted ChaCha20 key to key's database #
-    query = Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
-    QueryHandler(db, query, password)
-
-    # Send encrypted ChaCha20 nonce to keys database # 
-    query = Globals.DB_INSERT(db, 'upload_nonce', cha_nonce.decode('utf-8'))
-    QueryHandler(db, query, password)
+    # Encrypt the hashed input #
+    crypt_hash = Fernet(secret_key).encrypt(input_hash.encode())
 
     # AESCCM password authenticated key #
     key = AESCCM.generate_key(bit_length=256)
@@ -362,15 +607,82 @@ def MakeKeys(db: str, password: bytes):
     nonce = os.urandom(13)
 
     # Encrypt the db fernet key with AESCCM password key & write to file #
-    crypt = aesccm.encrypt(nonce, db_key, password)
-    FileHandler('.\\Keys\\db_crypt.txt', 'wb', password, operation='write', data=crypt)
+    crypt_db = aesccm.encrypt(nonce, db_key, bytes_pass)
 
-    # Add password hash to key ring #
-    keyring.set_password('CryptDrive', 'CryptUser', password.decode('utf-8'))
+    # Add encrypted password hash to key ring #
+    keyring.set_password('CryptDrive', 'CryptUser', crypt_hash.decode('utf-8'))
 
-    # Write AESCCM key and nonce to files #     
-    FileHandler('.\\Keys\\aesccm.txt', 'wb', password, operation='write', data=key)
-    FileHandler('.\\Keys\\nonce.txt', 'wb', password, operation='write', data=nonce)
+    # Set authentication object variables #
+    auth_obj.aesccm = key
+    auth_obj.nonce = nonce
+    auth_obj.db_key = crypt_db
+    auth_obj.secret_key = secret_key
+    auth_obj.password = crypt_hash
+
+    # Send encrypted ChaCha20 key to key's database #
+    query = Globals.DB_INSERT(db, 'upload_key', upload_key.decode('utf-8'))
+    QueryHandler(db, query, None)
+
+    # Send encrypted ChaCha20 nonce to keys database #
+    query = Globals.DB_INSERT(db, 'upload_nonce', cha_nonce.decode('utf-8'))
+    QueryHandler(db, query, None)
+
+    # Write AESCCM key and nonce to files #
+    FileHandler(Globals.FILES[0], 'wb', None, operation='write', data=key)
+    FileHandler(Globals.FILES[1], 'wb', None, operation='write', data=nonce)
+
+    # Write db key and secret key to files #
+    FileHandler(Globals.FILES[2], 'wb', None, operation='write', data=crypt_db)
+    FileHandler(Globals.FILES[3], 'wb', None, operation='write', data=secret_key)
+
+    Globals.HAS_KEYS = True
+
+    return auth_obj
+
+
+"""
+########################################################################################################################
+Name:       MetaStrip
+Purpose:    Attempts striping metadata from passed in file. If attempt fails, waiting a second and tries again while \
+            adding a second of waiting time per failure. After 3 failed attempts, it returns a False boolean value.
+Parameters: The path to the file who's metadata to be stripped.
+Returns:    Boolean, True if successful and False if fail.
+########################################################################################################################
+"""
+def MetaStrip(file_path: str) -> bool:
+    count, sleep_time = 0, 1
+
+    while True:
+        if count > 0:
+            sleep_time += 1
+
+        try:
+            # Read the data of the file to be scrubbed #
+            with open(file_path, 'rb') as in_file:
+                meta_file = Image(in_file)
+
+            # Delete all metadata #
+            meta_file.delete_all()
+
+            # Overwrite file with scrubbed data #
+            with open(file_path, 'wb') as out_file:
+                out_file.write(meta_file.get_file())
+
+        # If file IO error occurs #
+        except (AttributeError, KeyError, IOError):
+            # If false KeyError #
+            if KeyError:
+                pass
+
+            # If tag is not deletable, IO error, or 3 failed attempts #
+            if (AttributeError, IOError) or count == 3:
+                return False
+
+            time.sleep(sleep_time)
+            count += 1
+            continue
+
+        return True
 
 
 """
@@ -381,7 +693,7 @@ Parameters: Senders email address, receivers email address, message body, and fi
 Returns:    The formatted message with attachments.
 ########################################################################################################################
 """
-def MsgFormat(send_email: str, receiver: str, body: str, files: str):
+def MsgFormat(send_email: str, receiver: str, body: str, files: str) -> object:
     # Initial message object & format headers/body #
     msg = MIMEMultipart()
     msg['From'] = send_email
@@ -397,12 +709,15 @@ def MsgFormat(send_email: str, receiver: str, body: str, files: str):
 
         # Initialize stream to attach data #
         p = MIMEBase('application', 'octet-stream')
+        # Open file and read data as attachment #
         with open(file, 'rb') as attachment:
             p.set_payload(attachment.read())
 
         # Encode & attach current file #
         encoders.encode_base64(p)
+        # Add header to attachment #
         p.add_header('Content-Disposition', f'attachment;filename = {file}')
+        # Attach attachment to email #
         msg.attach(p)
 
     return msg
@@ -413,10 +728,10 @@ def MsgFormat(send_email: str, receiver: str, body: str, files: str):
 Name:       MsgSend
 Purpose:    Facilitate the sending of formatted emails.
 Parameters: Senders email address, receivers email address, hashed password, formatted message to be sent.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
-def MsgSend(send_email: str, receiver: str, password: bytes, msg):
+def MsgSend(send_email: str, receiver: str, password: str, msg: object, auth_obj: object):
     # Initialize SMTP session with gmail server #
     try:
         with smtplib.SMTP('smtp.gmail.com', 587) as session:
@@ -428,9 +743,11 @@ def MsgSend(send_email: str, receiver: str, password: bytes, msg):
             session.sendmail(send_email, receiver, msg.as_string())
             # Disconnect session #
             session.quit()
+
+    # If error occurs during SMTP session #
     except smtplib.SMTPException as err:
-        PrintErr('\n* [ERROR] Remote email server connection failed *\n', 2)
-        Logger(f'SMTP Error: {err}', password, operation='write', handler='error')
+        PrintErr('Remote email server connection failed', 2)
+        Logger(f'SMTP Error: {err}\n\n', auth_obj, operation='write', handler='error')
 
 
 """
@@ -438,26 +755,28 @@ def MsgSend(send_email: str, receiver: str, password: bytes, msg):
 Name        PrintErr
 Purpose:    Displays error message for supplied time interval.
 Parameters: The message to be displayed and the time interval to be displayed in seconds.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
-def PrintErr(msg: str, seconds: int):
-    print(msg, file=sys.stderr)
-    sleep(seconds)
+def PrintErr(msg: str, seconds):
+    print(f'\n* [ERROR] {msg} *\n', file=sys.stderr)
+    # If seconds has value (not None) #
+    if seconds:
+        time.sleep(seconds)
 
 
 """
 ########################################################################################################################
 Name:       QueryHandler
 Purpose:    Facilitates MySQL database query execution.
-Parameters: Database to execute query, query to be executed, hashed password, create toggle, fetchone toggle, and \
+Parameters: Database to execute query, query to be executed, password object, create toggle, fetchone toggle, and \
             fetchall toggle.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
-def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=False, fetchall=False):
+def QueryHandler(db: str, query: str, auth_obj: object, create=False, fetchone=False, fetchall=False):
     # Change directory #
-    os.chdir('.\\Dbs')
+    os.chdir(Globals.DIRS[0])
     # Sets maximum number of allowed db connections #
     maxConns = 1
     # Locks allowed connections to database #
@@ -468,6 +787,7 @@ def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=Fa
         try:
             # Connect to passed in database #
             conn = sqlite3.connect(f'{db}.db')
+
         # If database already exists #
         except Error:
             pass
@@ -480,7 +800,7 @@ def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=Fa
             # and moves back a directory #
             if create:
                 conn.close()
-                os.chdir('.\\..')
+                os.chdir(Globals.CWD)
                 return
 
             # Fetches entry from database then closes
@@ -488,7 +808,7 @@ def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=Fa
             elif fetchone:
                 row = db_call.fetchone()
                 conn.close()
-                os.chdir('.\\..')
+                os.chdir(Globals.CWD)
                 return row
 
             # Fetches all database entries then closes
@@ -496,26 +816,55 @@ def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=Fa
             elif fetchall:
                 rows = db_call.fetchall()
                 conn.close()
-                os.chdir('.\\..')
+                os.chdir(Globals.CWD)
                 return rows
 
             # Commit query to db #
             conn.commit()
-            # Move back a directory #
-            os.chdir('.\\..')
 
         # Database query error handling #
         except (Warning, Error, DatabaseError, IntegrityError,
                 ProgrammingError, OperationalError, NotSupportedError) as err:
             # Prints general error #
-            PrintErr('\n* [ERROR] Database error occurred *\n', 2)
-            # Moves back a directory #
-            os.chdir('.\\..')
-            # Passes log message to logging function #
-            Logger(f'SQL error: {err}\n', password, operation='write', handler='error')
+            PrintErr(f'SQL error: {err}', 2)
+
+            # If password is set #
+            if auth_obj:
+                # Passes log message to logging function #
+                Logger(f'SQL error: {err}\n\n', auth_obj, operation='write', handler='error')
 
         # Close connection #
         conn.close()
+        # Move back a directory #
+        os.chdir(Globals.CWD)
+
+
+"""
+########################################################################################################################
+Name:       SecureDelete
+Purpose:    Overwrite file data with random data number of specified passes and delete.
+Parameters: Path to the file to overwritten and deleted and the number of passes.
+Returns:    Nothing
+########################################################################################################################
+"""
+def SecureDelete(path: str, passes=5):
+    try:
+        # Get the file size in bytes #
+        length = os.stat(path).st_size
+
+        # Open file and overwrite the data for number of passes #
+        with open(path, 'wb') as file:
+            for _ in range(passes):
+                # Point file pointer to start of file #
+                file.seek(0)
+                # Write random data #
+                file.write(os.urandom(length))
+
+    # If file error occurs #
+    except (OSError, IOError) as err:
+        PrintErr(f'Error overwriting file for secure delete: {err}', 2)
+
+    os.remove(path)
 
 
 """
@@ -523,27 +872,42 @@ def QueryHandler(db: str, query: str, password: bytes, create=False, fetchone=Fa
 Name:       SystemCmd
 Purpose:    Execute shell-escaped system command.
 Parameters: Command to be executed, standard output, standard error, execution timeout, exif toggle, cipher toggle.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
-def SystemCmd(cmd: str, stdout, stderr, exec_time: int, exif=False, cipher=False):
-    # Shell escape command string #
+def SystemCmd(cmd: str, stdout, stderr, exec_time: int):
+    # Shell-escape command syntax #
     exe = shlex.quote(cmd)
-
-    # Exif command to strip metadata #
-    if exif:
-        command = Popen(['python', '-m', 'exif_delete', '-r', exe], stdout=stdout, stderr=stderr, shell=False)
-    # Cipher command to scrub deleted data from hd #
-    elif cipher:
-        command = Popen(['cipher', f'/w:{exe}'], stdout=stdout, stderr=stderr, shell=False)
-    # For built-in Windows shell commands like cls #
-    else:
-        command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+    # For built-in shell commands like (cls, clear) #
+    command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
 
     try:
+        # Execute command with passed in timeout threshold #
         command.communicate(exec_time)
 
     # Handles process timeouts and errors #
     except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
         command.kill()
         command.communicate()
+
+
+"""
+########################################################################################################################
+Name:       WriteLog
+Purpose:    Parse new log message to old data and write encrypted result to log.
+Parameters: Log name and database key.
+Returns:    Nothing
+########################################################################################################################
+"""
+def WriteLog(log_name: str, db_key: bytes):
+    # Get log message in variable #
+    log_msg = Globals.LOG_STREAM.getvalue()
+
+    try:
+        with open(log_name, 'w') as file:
+            # Encrypt log data & store on file #
+            crypt = EncryptDbData(db_key, log_msg.encode())
+            file.write(crypt)
+
+    except (IOError, FileNotFoundError, Exception) as err:
+        PrintErr(f'Error occurred writing {log_msg} to Logger:\n{err}', 2)
