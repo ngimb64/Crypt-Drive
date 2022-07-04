@@ -69,3 +69,23 @@ new components are created and the data must be re-uploaded with the new key set
 - Move encrypted data into DecryptDock folder
 - Make sure the user's decryption keys have been imported
 - Enter username to decrypt data or enter to decrypt your own data
+
+## Exit Codes
+-- cryptDrive.py --
+
+0 - Successful operation <br>
+1 - Error occurred during program startup <br>
+2 - User has exhausted maximum password attempts <br>
+3 - Error occurred decrypting keyring in startup <br>
+
+-- AuthCrypt.py --
+
+4 - Error decrypting the cipher hashed secret <br>
+5 - Error decrypting the database Fernet key <br>
+
+-- Utils.py --
+
+6 - Error decrypting database data <br>
+7 - Error encrypting database data <br>
+8 - Maximum (3) consecutive IO errors occurred <br>
+9 - Error occurred writing to encrypted log file <br>

@@ -231,7 +231,7 @@ def MainMenu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
                         provider = 'email.uscc.net'
                     else:
                         PrintErr('Unknown exception occurred selecting phone provider', 2)
-                        sys.exit(3)
+                        continue
 
                 break
 

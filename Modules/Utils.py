@@ -280,7 +280,7 @@ def DecryptDbData(decrypted_key: bytes, crypt_data: bytes) -> bytes:
     # If invalid token or encoding error #
     except (InvalidToken, TypeError, Error) as err:
         PrintErr(f'Error occurred during fernet data decryption: {err}', 2)
-        sys.exit(3)
+        sys.exit(4)
 
     # Return decrypted data #
     return plain_data
@@ -302,7 +302,7 @@ def EncryptDbData(decrypted_key: bytes, plain_data: bytes) -> str:
     # If invalid token or encoding error #
     except (InvalidToken, TypeError, Error) as err:
         PrintErr(f'Error occurred during fernet data decryption: {err}', 2)
-        sys.exit(3)
+        sys.exit(5)
 
     # Return encrypted data in base64 format #
     return b64encode(crypt_data).decode()
@@ -364,9 +364,14 @@ Returns:    Nothing
 ########################################################################################################################
 """
 def FileHandler(filename: str, op: str, auth_obj: object, operation=None, data=None):
-    count = 0
+    count, sleep_time = 0, 1
 
     while True:
+        # If loop is past first iteration #
+        if count > 1:
+            # Extend sleep time by a second #
+            sleep_time += 1
+
         try:
             with open(filename, op) as file:
                 # If read operation was specified #
@@ -397,8 +402,9 @@ def FileHandler(filename: str, op: str, auth_obj: object, operation=None, data=N
             # If three consecutive IO errors occur #
             if count == 3:
                 PrintErr('Maximum consecutive File IO errors detected .. check log & contact support', None)
-                exit(3)
+                exit(6)
 
+            time.sleep(sleep_time)
             count += 1
 
 
@@ -829,7 +835,7 @@ def QueryHandler(db: str, query: str, auth_obj: object, create=False, fetchone=F
             PrintErr(f'SQL error: {err}', 2)
 
             # If password is set #
-            if auth_obj:
+            if Globals.HAS_KEYS:
                 # Passes log message to logging function #
                 Logger(f'SQL error: {err}\n\n', auth_obj, operation='write', handler='error')
 
@@ -911,3 +917,4 @@ def WriteLog(log_name: str, db_key: bytes):
 
     except (IOError, FileNotFoundError, Exception) as err:
         PrintErr(f'Error occurred writing {log_msg} to Logger:\n{err}', 2)
+        sys.exit(9)
