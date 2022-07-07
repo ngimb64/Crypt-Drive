@@ -368,7 +368,7 @@ def FileHandler(filename: str, op: str, auth_obj: object, operation=None, data=N
 
     while True:
         # If loop is past first iteration #
-        if count > 1:
+        if count > 0:
             # Extend sleep time by a second #
             sleep_time += 1
 
@@ -427,11 +427,11 @@ def GetDatabaseComp(auth_obj: object) -> bytes:
 ########################################################################################################################
 Name:       HdCrawl
 Purpose:    Recursive hard drive crawler for recovering missing components.
-Parameters: Name of the item to be recovered.
+Parameters: The list of missing item(s) to be recovered.
 Returns:    Boolean True/False whether operation was success/fail.
 ########################################################################################################################
 """
-def HdCrawl(item: str) -> bool:
+def HdCrawl(items: list) -> list:
     # If OS is Windows #
     if os.name == 'nt':
         crawl_path = 'C:\\Users'
@@ -441,56 +441,95 @@ def HdCrawl(item: str) -> bool:
 
     # Crawl through user directories #
     for dir_path, dir_names, file_names in os.walk(crawl_path, topdown=True):
-        # Iterate through folders in current dir #
-        for folder in dir_names:
-            # If the folder and item are CryptDbs #
-            if folder == item == 'CryptDbs':
-                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[0])
-                print(f'Folder: {item} recovered')
-                return True
+        # If there are no recovery items left #
+        if not items:
+            break
 
-            # If the folder and item are CryptImport #
-            elif folder == item == 'CryptImport':
-                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[1])
-                print(f'Folder: {item} recovered')
-                return True
+        # If there are folders in the missing list #
+        if not items[0].endswith('.db') and not items[0].endswith('.txt'):
+            # Iterate through folders in current dir #
+            for folder in dir_names:
+                # If there are no more folders in the missing list #
+                if items[0].endswith('.db') and items[0].endswith('.txt'):
+                    break
 
-            # If the folder and item are CryptKeys #
-            elif folder == item == 'CryptKeys':
-                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[2])
-                print(f'Folder: {item} recovered')
-                return True
+                # Iterate through passed in missing list #
+                for item in items:
+                    # If the folder and item are CryptDbs #
+                    if folder == item == 'CryptDbs':
+                        # Copy and delete source folder #
+                        DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[0])
+                        print(f'Folder: {item} recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
 
-            # If the folder and item are DecryptDock #
-            elif folder == item == 'DecryptDock':
-                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[3])
-                print(f'Folder: {item} recovered')
-                return True
+                    # If the folder and item are CryptImport #
+                    elif folder == item == 'CryptImport':
+                        # Copy and delete source folder #
+                        DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[1])
+                        print(f'Folder: {item} recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
 
-            # If the folder and item are UploadDock #
-            elif folder == item == 'UploadDock':
-                DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[4])
-                print(f'Folder: {item} recovered')
-                return True
+                    # If the folder and item are CryptKeys #
+                    elif folder == item == 'CryptKeys':
+                        # Copy and delete source folder #
+                        DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[2])
+                        print(f'Folder: {item} recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
+
+                    # If the folder and item are DecryptDock #
+                    elif folder == item == 'DecryptDock':
+                        # Copy and delete source folder #
+                        DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[3])
+                        print(f'Folder: {item} recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
+
+                    # If the folder and item are UploadDock #
+                    elif folder == item == 'UploadDock':
+                        # Copy and delete source folder #
+                        DataCopy(f'{dir_path}\\{folder}', Globals.DIRS[4])
+                        print(f'Folder: {item} recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
 
         # Iterate through files in current dir #
         for file in file_names:
-            # If file is text #
-            if file.endswith('txt') and file == f'{item}.txt':
-                # If file is one of the key components #
-                if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
-                    DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[2]}\\{file}')
-                    print(f'File: {item}.txt recovered')
-                    return True
+            # Iterate through passed in failed items #
+            for item in items:
+                # If item is not a file #
+                if not item.endswith('.dbs') or not item.endswith('.txt'):
+                    continue
 
-            # If file is database #
-            elif file.endswith('.db') and file == f'{item}.db':
-                if file in ('crypt_keys.db', 'crypt_storage.db'):
-                    DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[0]}\\{file}')
-                    print(f'File: {item}.db recovered')
-                    return True
+                # If file is text #
+                if file.endswith('txt') and file == item:
+                    # If file is one of the key components #
+                    if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
+                        # Copy and delete source file #
+                        DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[2]}\\{file}')
+                        print(f'File: {item}.txt recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
 
-    return False
+                # If file is database #
+                elif file.endswith('.db') and file == item:
+                    if file in ('crypt_keys.db', 'crypt_storage.db'):
+                        # Copy and delete source file #
+                        DataCopy(f'{dir_path}\\{file}', f'{Globals.DIRS[0]}\\{file}')
+                        print(f'File: {item}.db recovered')
+                        # Remove recovered item from missing list #
+                        items.remove(item)
+                        break
+
+    return items
 
 
 """
@@ -676,17 +715,15 @@ def MetaStrip(file_path: str) -> bool:
 
         # If file IO error occurs #
         except (AttributeError, KeyError, IOError):
-            # If false KeyError #
-            if KeyError:
-                pass
-
-            # If tag is not deletable, IO error, or 3 failed attempts #
-            if (AttributeError, IOError) or count == 3:
+            # If 3 failed attempts #
+            if count == 3:
                 return False
 
-            time.sleep(sleep_time)
-            count += 1
-            continue
+            # If not false KeyError #
+            if not KeyError:
+                time.sleep(sleep_time)
+                count += 1
+                continue
 
         return True
 

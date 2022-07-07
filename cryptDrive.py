@@ -266,16 +266,16 @@ Returns:    True/False boolean toggle.
 """
 def StartCheck(db: str) -> bool:
     global log
-    failures = []
+    misses = []
 
     # Compile parsing regex's #
     re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
     re_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
 
-    # Iterate through missing components #
-    for item in Globals.MISSING:
-        # If OS is Windows where recycling bin exists #
-        if os.name == 'nt':
+    # If OS is Windows where recycling bin exists #
+    if os.name == 'nt':
+        # Iterate through missing components #
+        for item in Globals.MISSING:
             # If item is file #
             if item in Globals.FILES + Globals.DBS:
                 # Parse file without extension #
@@ -302,31 +302,21 @@ def StartCheck(db: str) -> bool:
 
             # If attempt to recover component from recycling bin fails #
             except x_not_found_in_recycle_bin:
-                print(f'{item} not found in recycling bin .. checking user storage')
+                print(f'{item} not found in recycling bin')
+                misses.append(item)
 
-        # If item is file #
-        if item in Globals.FILES + Globals.DBS:
-            # Parse file without extension #
-            re_item = re.search(re_no_ext, item)
-        # If file is folder #
-        else:
-            # Parse just the folder name with regex
-            re_item = re.search(re_dir, item)
+        # If all items were recovered #
+        if not misses:
+            return True
 
-        # Attempt to recover missing item
-        # from user storage in hard drive #
-        recover = HdCrawl(re_item.group(0))
+    # If OS is Linux #
+    else:
+        misses = Globals.MISSING
 
-        # If all attempts fail, add item to failures list #
-        if not recover:
-            print(f'{item} not found in user storage on hard drive')
-            failures.append(item)
-        else:
-            print(f'{item} was found in user storage on hard drive')
+    # Attempt to recover list of missing items from hard drive #
+    failures = HdCrawl(misses)
 
-        time.sleep(2)
-
-    # If a component could not be recovered #
+    # If hard drive recovery was not successful #
     if failures:
         # For component in list of failures #
         for fail in failures:
@@ -455,6 +445,8 @@ def PasswordInput(syntax_tuple: tuple, auth_obj) -> object:
                 auth_obj = ComponentHandler(dbs, prompt, auth_obj)
 
                 return auth_obj
+            else:
+                Globals.HAS_KEYS = True
 
         # Check for database contents and set auth object #
         auth_obj = DbCheck(dbs[0], prompt.encode(), auth_obj)

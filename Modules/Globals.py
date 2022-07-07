@@ -11,7 +11,7 @@ global CWD, LOG_STREAM, FILES, DBS, DIRS, HAS_KEYS, MISSING
 Name:       Initialize
 Purpose:    Initializes variables for global access.
 Parameters: The base path of the initially executed script.
-Returns:    None
+Returns:    Nothing
 ########################################################################################################################
 """
 def Initialize(path: str):
