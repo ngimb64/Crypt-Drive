@@ -1,18 +1,33 @@
 # Crypt Drive
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
 
+&#9745;&#65039; Bandit verified<br>
+&#9745;&#65039; Synk verified<br>
+&#9745;&#65039; Pylint verified
+
 ## Prereqs
-- Made for Windows and Linux, written in Python 3.9
+Made for Windows and Linux, written in Python 3.9
+
+## Purpose
+Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password
+protected database, while giving the user to share the unlock key & nonce via a temporary password protected
+encryption through emails & a password provided via sms text message. After unlock components are received
+the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
+Crypt Drive also is able to store and rebuild recursive file systems through encrypted databases.
+
+It also features a startup script that check the programs components such as keys and databases. If components are
+missing, the program checks the recycling bin and file system in an attempt to recover it. If the recovery fails,
+new components are created and the data must be re-uploaded with the new key set to be able to decrypt it.
 
 ## Installation
 - Run the setup.py script to build a virtual environment and install all external packages in the created venv.
 
-> Example:<br>
-> python3 setup.py "venv name"
+> Example: `python3 setup.py venv`
 
-- Once virtual env is built move to the Scripts directory in the environment folder just created.
-- In the Scripts directory, execute the "activate" script to activate the virtual environment.<br>
-<br>
+- Once virtual env is built traverse to the (Scripts-Windows or bin-Linux) directory in the environment folder just created.
+- For Windows in the Scripts directory, for execute the `./activate` script to activate the virtual environment.
+- For Linux in the bin directory, run the command `source activate` to activate the virtual environment.
+
 
 - Create a gmail account or login to existing account.
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
@@ -24,17 +39,6 @@
   directory in CryptDrive as a file named AppSecret.txt.
 - The API credentials are for Drive authentication and the AppSecret.txt is for Gmail authentication.
 
-## Purpose
-Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password 
-protected database, while giving the user to share the unlock key & nonce via a temporary password protected 
-encryption through emails & a password provided via sms text message. After unlock components are received
-the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
-Crypt Drive also is able to store and rebuild recursive file systems through encrypted databases.
-
-It also features a startup script that check the programs components such as keys and databases. If components are 
-missing, the program checks the recycling bin and file system in an attempt to recover it. If the recovery fails, 
-new components are created and the data must be re-uploaded with the new key set to be able to decrypt it.
-
 ### Encryption scheme:
 - Database Unlock & Sharing - Authenticated AES 256 counter mode CBC with 104 bit nonce & CBC-MAC (CCM) integrity check
 - Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
@@ -45,7 +49,7 @@ new components are created and the data must be re-uploaded with the new key set
 - A startup script is run to confirm critical components exist, recreates anything missing
 
 ### Upload
-- Enter path to file as the recommended format C:\like\this\to\folder
+- Enter path to file in the instructed format
 - The default web browser should pop up with a Google login page
 - After completing authentication the credentials should be saved to a credentials.json file which prevents
   having to log in for future use
@@ -69,6 +73,9 @@ new components are created and the data must be re-uploaded with the new key set
 - Move encrypted data into DecryptDock folder
 - Make sure the user's decryption keys have been imported
 - Enter username to decrypt data or enter to decrypt your own data
+
+## Function Layout
+
 
 ## Exit Codes
 -- cryptDrive.py --

@@ -1,4 +1,4 @@
-# Built-in Modules #
+""" Built-in modules """
 import os
 import re
 import time
@@ -6,79 +6,62 @@ from base64 import b64encode, b64decode
 from getpass import getuser
 from pathlib import Path
 from shutil import rmtree
-
 # External Modules #
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
-
 # Custom Modules #
-import Modules.Globals as Globals
-from Modules.Utils import DecryptDbData, ChaAlgoInit, ChaChaDecrypt, EncryptDbData, FetchUploadComps, FileHandler, \
-                          GetDatabaseComp, MetaStrip, MsgFormat, MsgSend, PrintErr, QueryHandler, SecureDelete
-
-
-"""
-##################
-# Function Index #
-########################################################################################################################
-DbExtract - Export data from storage database.
-DbStore - Stores data into the storage database.
-Decryption - Decrypts data in decrypt doc or specified path to storage database.
-FileUpload - Uploads file in upload dock or specified path to Google Drive.
-FolderUpload - Uploads folder in upload dock or specified path to Google Drive.
-ImportKey - Imports remote user decryption contents to decrypt shared data.
-ListDrive - Lists root directory of users Google Drive.
-ListStorage - Lists contents of storage database.
-ShareKey - Shares decrypt components with other user protected via temporary password.
-Upload - Google Drive upload function.
-########################################################################################################################
-"""
+import Modules.globals as global_vars
+from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
+                          fetch_upload_comps, file_handler, get_database_comp, meta_strip, msg_format, \
+                          msg_send, print_err, query_handler, secure_delete
 
 
 # Global variables #
 parent_id = ''
 
 
-"""
-########################################################################################################################
-Name:       DbExtract
-Purpose:    Extracts data from local storage database in encrypted or plain text.
-Parameters: The database tuple, authentication object, recursive anchor folder name, and path to extract data. 
-Returns:    Nothing
-########################################################################################################################
-"""
-def DbExtract(dbs: tuple, auth_obj: object, folder: str, path: str):
+def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
+    """
+    Extracts data from local storage database in encrypted or plain text.
+
+    :param dbs:  The database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param folder:  Folder name to be inserted into recursive regex.
+    :param path:  Path where the database data will be extracted to.
+    :return:  Prints successful operation or error message.
+    """
     decryptor = None
 
     # Prompt user if data should be exported in encrypted or plain text #
     while True:
-        prompt = input('\nShould the data be extracted in encrypted or plain text (encrypted or plain)? ')
-        prompt2 = input('\nShould the data extracted be deleted from the data base after operation (y or n)? ')
+        prompt = input('\nShould the data be extracted in encrypted or plain text'
+                       ' (encrypted or plain)? ')
+        prompt2 = input('\nShould the data extracted be deleted from the data base after'
+                        ' operation (y or n)? ')
 
         # If improper input is provided #
         if prompt not in ('encrypted', 'plain') or prompt2 not in ('y', 'n'):
-            PrintErr('Improper input provided .. try again selecting inputs provided', 2)
+            print_err('Improper input provided .. try again selecting inputs provided', 2)
             continue
 
         break
 
     # Confirm the storage database has data to extract #
-    query = Globals.DB_CONTENTS(dbs[1])
-    extract_call = QueryHandler(dbs[1], query, auth_obj, fetchall=True)
+    query = global_vars.db_contents(dbs[1])
+    extract_call = query_handler(dbs[1], query, auth_obj, fetchall=True)
 
     # If no data, exit the function #
     if not extract_call:
-        PrintErr('No contents in storage database to export', 2)
-        return
+        return print_err('No contents in storage database to export', 2)
 
     # If data is to be extracted in plain text #
     if prompt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = ChaChaDecrypt(auth_obj, dbs[0])
+        key, nonce = cha_decrypt(auth_obj, dbs[0])
         # Initialize the ChaCha20 algo object #
-        algo = ChaAlgoInit(key, nonce)
+        algo = cha_init(key, nonce)
         # Set the algo object as decryptor #
         decryptor = algo.decryptor()
 
@@ -116,7 +99,7 @@ def DbExtract(dbs: tuple, auth_obj: object, folder: str, path: str):
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 # Write data to path saved in db #
-                FileHandler(file_path, 'wb', auth_obj, operation='write', data=text)
+                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
 
             # User specified file path #
             else:
@@ -133,37 +116,38 @@ def DbExtract(dbs: tuple, auth_obj: object, folder: str, path: str):
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 # Write data to path specified by user input #
-                FileHandler(file_path, 'wb', auth_obj, operation='write', data=text)
+                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
 
             print(f'File: {row[0]}')
 
             if prompt2 == 'y':
                 # Delete item from storage database #
-                query = Globals.DB_DELETE(dbs[1], row[0])
-                QueryHandler(dbs[1], query, auth_obj)
+                query = global_vars.db_delete(dbs[1], row[0])
+                query_handler(dbs[1], query, auth_obj)
 
-    print(f'\n\n[SUCCESS] Files from {folder} have been extracted')
+    return print(f'\n\n[SUCCESS] Files from {folder} have been extracted')
 
 
-"""
-########################################################################################################################
-Name:       DbStore
-Purpose:    Encrypts and inserts data into storage database.
-Parameters: The database tuple, authentication object, and source path where data is being stored from.
-Returns:    Nothing
-########################################################################################################################
-"""
-def DbStore(dbs: tuple, auth_obj: object, path: str):
+def db_store(dbs: tuple, auth_obj: object, path: str):
+    """
+    Encrypts and inserts data into storage database.
+
+    :param dbs: The database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param path:  Path where the files to be stored in the database are.
+    :return:  Nothing
+    """
     encryptor = None
 
     # Prompt user if data being stored is encrypted or not #
     while True:
-        prompt = input('\nIs the data being stored encrypted already or in plain text (encrypted or plain)? ')
+        prompt = input('\nIs the data being stored encrypted already or in plain text'
+                       ' (encrypted or plain)? ')
         prompt2 = input('\nDo you want to delete the files after stored in database (y or n)? ')
 
         # If improper input is provided #
         if prompt not in ('encrypted', 'plain') or prompt2 not in ('y', 'n'):
-            PrintErr('Improper input provided .. try again selecting inputs provided', 2)
+            print_err('Improper input provided .. try again selecting inputs provided', 2)
             continue
 
         break
@@ -171,9 +155,9 @@ def DbStore(dbs: tuple, auth_obj: object, path: str):
     # If the data to be stored is in plain text #
     if prompt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = ChaChaDecrypt(auth_obj, dbs[0])
+        key, nonce = cha_decrypt(auth_obj, dbs[0])
         # Initialize the ChaCha20 algo object #
-        algo = ChaAlgoInit(key, nonce)
+        algo = cha_init(key, nonce)
         # Set the algo object to encryptor #
         encryptor = algo.encryptor()
 
@@ -195,13 +179,13 @@ def DbStore(dbs: tuple, auth_obj: object, path: str):
             # If file contains extension with metadata #
             if file.endswith(ext):
                 # Strip all the metadata before storing #
-                strip = MetaStrip(f'{dir_path}\\{file}')
+                strip = meta_strip(f'{dir_path}\\{file}')
                 # If metadata strip failed, avoid storing #
                 if not strip:
                     continue
 
             # Read file data #
-            file_data = FileHandler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
+            file_data = file_handler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
 
             # If in plain text, encrypt it #
             if prompt == 'plain':
@@ -214,15 +198,15 @@ def DbStore(dbs: tuple, auth_obj: object, path: str):
                 data = b64encode(file_data).decode()
 
             # Path is stored like "Documents\path\to\folder", file is stored as the name #
-            query = Globals.DB_STORE(dbs[1], file, rel_path.group(0), data)
-            QueryHandler(dbs[1], query, auth_obj)
+            query = global_vars.db_store(dbs[1], file, rel_path.group(0), data)
+            query_handler(dbs[1], query, auth_obj)
 
             print(f'File: {file}')
 
             # If user wants to delete stored files #
             if prompt2 == 'y':
                 # Delete (unlink) from file system after storage #
-                SecureDelete(f'{dir_path}\\{file}')
+                secure_delete(f'{dir_path}\\{file}')
 
     if prompt2 == 'y':
         # Recursively delete leftover empty folders
@@ -232,15 +216,16 @@ def DbStore(dbs: tuple, auth_obj: object, path: str):
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
 
-"""
-########################################################################################################################
-Name:       Decryption
-Purpose:    Decrypts data located on the file system.
-Parameters: Database tuple, username of data to decrypt, authentication object, and local path where data is located.
-Returns:    Nothing
-########################################################################################################################
-"""
-def Decryption(db: str, user: str, auth_obj: object, local_path: str):
+def decryption(db: str, user: str, auth_obj: object, local_path: str):
+    """
+    Decrypts data located on the file system.
+
+    :param db:  The database name tuple.
+    :param user:  Username of the data to decrypt.
+    :param auth_obj:  The authentication instance.
+    :param local_path:  Path to where the data is locally stored on disk.
+    :return:  Prints successful operation or error message.
+    """
     # If local user is specified #
     if user == '':
         user_key = 'upload_key'
@@ -250,21 +235,21 @@ def Decryption(db: str, user: str, auth_obj: object, local_path: str):
         user_nonce = f'{user}_nonce'
 
     # Get the decrypted database key #
-    db_key = GetDatabaseComp(auth_obj)
+    db_key = get_database_comp(auth_obj)
     # Attempt to Retrieve the upload key and nonce from Keys db #
-    decrypt_call, nonce_call = FetchUploadComps(db, user_key, user_nonce, auth_obj)
+    decrypt_call, nonce_call = fetch_upload_comps(db, user_key, user_nonce, auth_obj)
 
     # If decrypt key doesn't exist in db #
     if not decrypt_call or not nonce_call:
-        PrintErr('Database missing decrypt component .. exit and restart program to fix issue', 2)
-        return
+        return print_err('Database missing decrypt component .. exit and'
+                        ' restart program to fix issue', 2)
 
     # Decrypt key & nonce #
-    decrypt_key = DecryptDbData(db_key, decrypt_call[1])
-    decrypt_nonce = DecryptDbData(db_key, nonce_call[1])
+    decrypt_key = decrypt_db_data(db_key, decrypt_call[1])
+    decrypt_nonce = decrypt_db_data(db_key, nonce_call[1])
 
     # Initialize the ChaCha20 algo object #
-    algo = ChaAlgoInit(decrypt_key, decrypt_nonce)
+    algo = cha_init(decrypt_key, decrypt_nonce)
     # Set the object as decryptor #
     decryptor = algo.decryptor()
 
@@ -277,27 +262,29 @@ def Decryption(db: str, user: str, auth_obj: object, local_path: str):
         for file in file_names:
             print(f'File: {file}')
             # Read the encrypted file data #
-            file_data = FileHandler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
+            file_data = file_handler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
             # Decrypt the encrypted file data #
             plain = decryptor.update(file_data)
             # Delete the encrypted file data #
-            SecureDelete(f'{dir_path}\\{file}')
+            secure_delete(f'{dir_path}\\{file}')
             # Re-write the plain text data to file #
-            FileHandler(f'{dir_path}\\{file}', 'wb', auth_obj, operation='write', data=plain)
+            file_handler(f'{dir_path}\\{file}', 'wb', auth_obj, operation='write', data=plain)
 
-    print('\n\n[SUCCESS] Data has been decrypted')
+    return print('\n\n[SUCCESS] Data has been decrypted')
 
 
-"""
-########################################################################################################################
-Name:       FileUpload
-Purpose:    Recursively uploads files to Drive.
-Parameters: Drive session object, recursive upload path, base directory path, file to be uploaded, http session \
-            object, and local directory path.
-Returns:    Nothing
-########################################################################################################################
-"""
-def FileUpload(drive: object, up_path, dir_path: str, file: str, http: object, local_path):
+def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, local_path):
+    """
+    Recursively uploads files to Drive.
+
+    :param drive:  Google Drive authenticated instance.
+    :param up_path:  Recursive upload path.
+    :param dir_path:  Base directory path.
+    :param file:  Name of the file to be uploaded.
+    :param http:  Http session object.
+    :param local_path:  Local path where data is stored on disk.
+    :return:  Nothing
+    """
     # If upload is in the root dir #
     if not up_path:
         # Create Drive file object #
@@ -305,11 +292,12 @@ def FileUpload(drive: object, up_path, dir_path: str, file: str, http: object, l
         # Set Drive object content to locally stored file #
         file_obj.SetContentFile(f'{dir_path}\\{file}')
         # Upload file & pass http object into upload call #
-        file_obj.Upload(param={'http': http})
+        file_obj.upload(param={'http': http})
     else:
         # Get List of folders in upload path #
-        folders = drive.ListFile({'q': 'title=\'' + up_path + '\' and mimeType='
-                                 '\'application/vnd.google-apps.folder\' and trashed=false'}).GetList()
+        folders = drive.ListFile({'q': 'title=\'' + up_path + '\' and mimeType=''\'application/vnd.'
+                                                              'google-apps.folder\' and '
+                                                              'trashed=false'}).GetList()
         # Iterate through folders in upload path #
         for folder in folders:
             # If folder matches extension path, create it in folder #
@@ -319,19 +307,20 @@ def FileUpload(drive: object, up_path, dir_path: str, file: str, http: object, l
                 # Set Drive object content to locally stored file in recursive dir #
                 file_obj.SetContentFile(f'{dir_path}\\{local_path}\\{file}')
                 # Upload & pass http object into upload call #
-                file_obj.Upload(param={'http': http})
-                return
+                file_obj.upload(param={'http': http})
+                break
 
 
-"""
-########################################################################################################################
-Name:       FolderUpload
-Purpose:    Recursively uploads folders to Drive.
-Parameters: Drive session object, parent directory name, directory to be created name, and http session object
-Returns:    Nothing
-########################################################################################################################
-"""
-def FolderUpload(drive: object, parent_dir, dir_list: list, http: object):
+def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
+    """
+    Recursively uploads folders to Drive.
+
+    :param drive:  Google Drive authenticated instance.
+    :param parent_dir:  Parent directory name.
+    :param dir_list:  List of subdirectories to be created.
+    :param http:  Http session instance.
+    :return:  Nothing
+    """
     global parent_id
     add_id = ''
 
@@ -342,23 +331,27 @@ def FolderUpload(drive: object, parent_dir, dir_list: list, http: object):
             # If upload is in the root dir #
             if not parent_dir:
                 # Create folder object #
-                folder = drive.CreateFile({'title': directory,  'mimeType': 'application/vnd.google-apps.folder'})
+                folder = drive.CreateFile({'title': directory,
+                                           'mimeType': 'application/vnd.google-apps.folder'})
                 # Upload & pass http object into upload call #
-                folder.Upload(param={'http': http})
+                folder.upload(param={'http': http})
 
                 print(f'Directory: {directory}')
             else:
-                folder_list = drive.ListFile({'q': "'{0}' in parents and trashed=false".format(parent_id)}).GetList()
+                folder_list = drive.ListFile({'q': "'{0}' in parents and trashed=false"
+                                             .format(parent_id)}).GetList()
 
                 # Iterate through fetched drive folder list #
                 for folder in folder_list:
                     if folder['title'] == parent_dir:
                         # Create sub-folder object & upload #
                         parent = drive.CreateFile({'title': directory,
-                                                   'parents': [{'kind': 'drive#fileLink', 'id': folder['id']}],
-                                                   'mimeType': 'application/vnd.google-apps.folder'})
+                                                   'parents': [{'kind': 'drive#fileLink',
+                                                                'id': folder['id']}],
+                                                   'mimeType': 'application/vnd.google-apps.folder'}
+                                                  )
                         # Upload & pass http object into upload call #
-                        parent.Upload(param={'http': http})
+                        parent.upload(param={'http': http})
 
                         print(f'Directory: {directory}')
 
@@ -375,35 +368,36 @@ def FolderUpload(drive: object, parent_dir, dir_list: list, http: object):
             parent_id = add_id
 
 
-"""
-########################################################################################################################
-Name:       ImportKey
-Purpose:    Import user's key to the encrypted local key data base.
-Parameters: The database tuple, authentication object, associated username, and temporary unlock password.
-Returns:    Nothing
-########################################################################################################################
-"""
-def ImportKey(db: str, auth_obj: object, user: str, user_pass: str):
-    key_path = f'{Globals.DIRS[1]}\\{user}_decrypt.txt'
-    key_nonce_path = f'{Globals.DIRS[1]}\\{user}_key_nonce.txt'
-    aesccm_path = f'{Globals.DIRS[1]}\\{user}_aesccm.txt'
-    nonce_path = f'{Globals.DIRS[1]}\\{user}_nonce.txt'
+def import_key(db: str, auth_obj: object, user: str, user_pass: str):
+    """
+    Import user's key to the encrypted local key database.
+
+    :param db:  Database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param user:  Username associated with key import.
+    :param user_pass:  Temporary key sharing password.
+    :return:  Prints successful operation or error message.
+    """
+    key_path = f'{global_vars.DIRS[1]}\\{user}_decrypt.txt'
+    key_nonce_path = f'{global_vars.DIRS[1]}\\{user}_key_nonce.txt'
+    aesccm_path = f'{global_vars.DIRS[1]}\\{user}_aesccm.txt'
+    nonce_path = f'{global_vars.DIRS[1]}\\{user}_nonce.txt'
 
     # Confirm all critical files to operation are present #
-    if not Globals.FILE_CHECK(key_path) or not Globals.FILE_CHECK(key_nonce_path) \
-    or not Globals.FILE_CHECK(aesccm_path) or not Globals.FILE_CHECK(nonce_path):
-        PrintErr('A component needed for importing key is missing, 4 files are required in the Import directory:\n'
-                 '[user]_decrypt.txt, [user]_key_nonce.txt, [user]_aesccm.txt, [user]_nonce.txt', 2.5)
-        return
+    if not global_vars.file_check(key_path) or not global_vars.file_check(key_nonce_path) \
+    or not global_vars.file_check(aesccm_path) or not global_vars.file_check(nonce_path):
+        return print_err('A component needed for importing key is missing, 4 files are required in'
+                        ' the Import directory:\n[user]_decrypt.txt, [user]_key_nonce.txt,'
+                        ' [user]_aesccm.txt, [user]_nonce.txt', 2.5)
 
     # Load user AESCCM decrypt components #
-    key = FileHandler(aesccm_path, 'rb', auth_obj, operation='read')
-    nonce = FileHandler(nonce_path, 'rb', auth_obj, operation='read')
+    key = file_handler(aesccm_path, 'rb', auth_obj, operation='read')
+    nonce = file_handler(nonce_path, 'rb', auth_obj, operation='read')
     aesccm = AESCCM(key)
 
     # Read users decrypt & nonce key #
-    crypt_key = FileHandler(key_path, 'rb', auth_obj, operation='read')
-    crypt_nonce = FileHandler(key_nonce_path, 'rb', auth_obj, operation='read')
+    crypt_key = file_handler(key_path, 'rb', auth_obj, operation='read')
+    crypt_nonce = file_handler(key_nonce_path, 'rb', auth_obj, operation='read')
 
     # Unlock users decrypt & nonce key #
     try:
@@ -412,39 +406,37 @@ def ImportKey(db: str, auth_obj: object, user: str, user_pass: str):
 
     # If the authentication tag is invalid #
     except InvalidTag:
-        PrintErr('Incorrect unlock password entered .. try restarting program or deleting Keys/Dbs folders', 2)
-        return
+        return print_err('Incorrect unlock password entered .. try restarting program or deleting'
+                        ' Keys/Dbs folders', 2)
 
     # Get the decrypted database key #
-    db_key = GetDatabaseComp(auth_obj)
+    db_key = get_database_comp(auth_obj)
 
     # Encrypt user components #
-    upload_key = EncryptDbData(db_key, user_key)
-    upload_nonce = EncryptDbData(db_key, user_nonce)
+    upload_key = encrypt_db_data(db_key, user_key)
+    upload_nonce = encrypt_db_data(db_key, user_nonce)
 
     # Send users decrypt key to key database #
-    query = Globals.DB_INSERT(db, f'{user}_decrypt', upload_key)
-    QueryHandler(db, query, auth_obj)
+    query = global_vars.db_insert(db, f'{user}_decrypt', upload_key)
+    query_handler(db, query, auth_obj)
 
     # Send users nonce to database #
-    query = Globals.DB_INSERT(db, f'{user}_nonce', upload_nonce)
-    QueryHandler(db, query, auth_obj)
+    query = global_vars.db_insert(db, f'{user}_nonce', upload_nonce)
+    query_handler(db, query, auth_obj)
 
     # Delete file in Import dir #
-    [SecureDelete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
+    [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
 
-    print(f'\n\n[SUCCESS] {user}\'s public key has been imported .. now in Keys directory & databases')
+    return print(f'\n\n[SUCCESS] {user}\'s public key has been imported ..'
+                 ' now in Keys directory & databases')
 
 
-"""
-########################################################################################################################
-Name:       ListDrive
-Purpose:    List the contents of Google Drive storage.
-Parameters: Nothing
-Returns:    Nothing
-########################################################################################################################
-"""
-def ListDrive():
+def list_drive():
+    """
+    List the contents of Google Drive storage.
+
+    :return:  Nothing
+    """
     # Authenticate drive #
     gauth = auth.GoogleAuth()
     gauth.LocalWebserverAuth()
@@ -467,22 +459,21 @@ def ListDrive():
     input('\nHit enter to continue ')
 
 
-"""
-########################################################################################################################
-Name:       ListStorage
-Purpose:    List the contents of the local storage database.
-Parameters: The storage database and authentication object.
-Returns:    Nothing
-########################################################################################################################
-"""
-def ListStorage(db: str, auth_obj: object):
+def list_storage(db: str, auth_obj: object):
+    """
+    List the contents of the local storage database.
+
+    :param db:  Database name tuple.
+    :param auth_obj:  The authentication instance.
+    :return:   Nothing
+    """
     # Fetch the contents of the storage database # #
-    query = Globals.DB_CONTENTS(db)
-    list_call = QueryHandler(db, query, auth_obj, fetchall=True)
+    query = global_vars.db_contents(db)
+    list_call = query_handler(db, query, auth_obj, fetchall=True)
 
     # If no data, exit the function #
     if not list_call:
-        PrintErr('No contents in storage database to export', 1)
+        print_err('No contents in storage database to export', 1)
         return
 
     print(f'\nStorage Database Contents\n{(26 * "*")}\n')
@@ -492,18 +483,21 @@ def ListStorage(db: str, auth_obj: object):
     input('\nHit enter to continue ')
 
 
-"""
-########################################################################################################################
-Name:       ShareKey
-Purpose:    Share decryption key protected by a password through authentication-based encryption.
-Parameters: The database tuple, authentication object, senders email, email API password, receivers emails & \
-            phone information, and compiled password regular expression.
-Returns:    Nothing
-########################################################################################################################
-"""
-def ShareKey(db: str, auth_obj: object, send_email: str, email_pass: str, receivers: str, re_pass: object):
+def key_share(db: str, auth_obj: object, send_email: str, email_pass: str, receivers: str,
+              re_pass: object):
+    """
+    Share decryption key protected by a password through authentication-based encryption.
+
+    :param db:  Database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param send_email:  Key senders email address.
+    :param email_pass:  Key senders generated application password.
+    :param receivers:  Receivers email and phone information.
+    :param re_pass:  Compiled regex for password matching.
+    :return:  Nothing
+    """
     # Retrieve and decrypt ChaCha20 components #
-    share_key, share_nonce = ChaChaDecrypt(auth_obj, db)
+    share_key, share_nonce = cha_decrypt(auth_obj, db)
 
     # Prompt user for password to protect key on transit #
     while True:
@@ -511,7 +505,8 @@ def ShareKey(db: str, auth_obj: object, send_email: str, email_pass: str, receiv
 
         # If invalid input was entered #
         if not re.search(re_pass, key_pass):
-            PrintErr('Invalid password format .. numbers, letters & _+$@&( special characters allowed', 2)
+            print_err('Invalid password format .. numbers, letters'
+                     ' & _+$@&( special characters allowed', 2)
             continue
 
         break
@@ -526,7 +521,7 @@ def ShareKey(db: str, auth_obj: object, send_email: str, email_pass: str, receiv
     key_nonce = aesccm.encrypt(nonce, share_nonce, key_pass.encode())
 
     # Change directory into Keys #
-    os.chdir(Globals.DIRS[3])
+    os.chdir(global_vars.DIRS[3])
 
     # Grab username from email with regex & format it to file names #
     user = re.search(r'\w{2,30}(?=@)', send_email)
@@ -536,10 +531,10 @@ def ShareKey(db: str, auth_obj: object, send_email: str, email_pass: str, receiv
     nonce_path = f'{user.group(0)}_nonce.txt'
 
     # Write components to be sent in files #
-    FileHandler(key_path, 'wb', auth_obj, operation='write', data=key_crypt)
-    FileHandler(key_nonce_path, 'wb', auth_obj, operation='write', data=key_nonce)
-    FileHandler(aesccm_path, 'wb', auth_obj, operation='write', data=key)
-    FileHandler(nonce_path, 'wb', auth_obj, operation='write', data=nonce)
+    file_handler(key_path, 'wb', auth_obj, operation='write', data=key_crypt)
+    file_handler(key_nonce_path, 'wb', auth_obj, operation='write', data=key_nonce)
+    file_handler(aesccm_path, 'wb', auth_obj, operation='write', data=key)
+    file_handler(nonce_path, 'wb', auth_obj, operation='write', data=nonce)
 
     # Group message data to be iterated over #
     body = ('Attached below is your encrypted decryption key .. download and move to import folder',
@@ -553,28 +548,28 @@ def ShareKey(db: str, auth_obj: object, send_email: str, email_pass: str, receiv
     # Iterate of different message destinations #
     for receiver in receivers:
         # Format email #
-        msg = MsgFormat(send_email, receiver, body[count], files[count])
+        msg = msg_format(send_email, receiver, body[count], files[count])
         # Send email #
-        MsgSend(send_email, receiver, email_pass, msg, auth_obj)
+        msg_send(send_email, receiver, email_pass, msg, auth_obj)
         count += 1
 
     # Delete sent items
-    [SecureDelete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
+    [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
 
     # Change dir back into __main__ #
-    os.chdir(Globals.CWD)
+    os.chdir(global_vars.CWD)
     print('\n\n[SUCCESS] Keys and password successfully sent')
 
 
-"""
-########################################################################################################################
-Name:       Upload
-Purpose:    Manages encrypted recursive upload to Google Drive.
-Parameters: The database tuple, hashed password, and local path to be uploaded
-Returns:    Nothing
-########################################################################################################################
-"""
-def Upload(dbs: tuple, auth_obj: object, local_path: str):
+def upload(dbs: tuple, auth_obj: object, local_path: str):
+    """
+    Manages encrypted recursive upload to Google Drive.
+
+    :param dbs:  Database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param local_path:  Local path on disk to be uploaded.
+    :return:  Prints successful operation or error message.
+    """
     global parent_id
     encryptor = None
     folder = None
@@ -582,31 +577,36 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
 
     # Prompt user if data being uploaded is in encrypted or plain text #
     while True:
-        prompt = input('\nIs the data being uploaded already encrypted or in plain text (encrypted or plain)? ')
+        prompt = input('\nIs the data being uploaded already encrypted or in plain text'
+                       ' (encrypted or plain)? ')
         prompt2 = input('\nAfter uploading data to cloud should it be deleted (y or n)? ')
 
         # If improper combination of inputs were supplied #
-        if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') or prompt2 not in ('y', 'n'):
-            PrintErr('Improper input provided .. if Storage selected, encrypted must also be selected', 2)
+        if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') \
+        or prompt2 not in ('y', 'n'):
+            print_err('Improper input provided .. if Storage selected,'
+                     ' encrypted must also be selected', 2)
             continue
 
         # If user hit enter and specified data is already encrypted #
         if not local_path and prompt == 'encrypted':
-            folder = input('\nEnter the folder name to recursively extract from storage database and upload: ')
-            prompt3 = input('\nShould the data extracted be deleted from the data base after operation (y or n)? ')
+            folder = input('\nEnter the folder name to recursively extract'
+                           ' from storage database and upload: ')
+            prompt3 = input('\nShould the data extracted be deleted from the'
+                            ' data base after operation (y or n)? ')
 
             # If regex validation fails or prompt2 is invalid #
             if not re.search(r'^[a-zA-Z\d_.]{1,30}', folder) or prompt2 not in ('y', 'n'):
-                PrintErr('Improper input provided .. try again', 2)
+                print_err('Improper input provided .. try again', 2)
                 continue
 
         break
 
     if prompt == 'plain':
         # Retrieve and decrypt ChaCha20 components #
-        upload_key, upload_nonce = ChaChaDecrypt(auth_obj, dbs[0])
+        upload_key, upload_nonce = cha_decrypt(auth_obj, dbs[0])
         # Initialize ChaCha20 encryption algo #
-        algo = ChaAlgoInit(upload_key, upload_nonce)
+        algo = cha_init(upload_key, upload_nonce)
         # Set algo object to encryptor #
         encryptor = algo.encryptor()
 
@@ -614,18 +614,17 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
     # due to the user selecting storage #
     if not local_path:
         # Confirm the storage database has data to extract #
-        query = Globals.DB_CONTENTS(dbs[1])
-        extract_call = QueryHandler(dbs[1], query, auth_obj, fetchall=True)
+        query = global_vars.db_contents(dbs[1])
+        extract_call = query_handler(dbs[1], query, auth_obj, fetchall=True)
 
         # If no data, exit the function #
         if not extract_call:
-            PrintErr('No contents in storage database to upload', 2)
-            return
+            return print_err('No contents in storage database to upload', 2)
 
         # Compile regex for parsing out Documents from stored path #
         re_relPath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
         # Set local_path to UploadDock #
-        local_path = Globals.DIRS[4]
+        local_path = global_vars.DIRS[4]
 
         print(f'\nExporting stored files from folder into Upload Dock:\n{36 * "*"}\n')
 
@@ -649,12 +648,12 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
                 # Write data to path specified by user input #
-                FileHandler(file_path, 'wb', auth_obj, operation='write', data=text)
+                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
 
                 if prompt3 == 'y':
                     # Delete item from storage database #
-                    query = Globals.DB_DELETE(dbs[1], row[0])
-                    QueryHandler(dbs[1], query, auth_obj)
+                    query = global_vars.db_delete(dbs[1], row[0])
+                    query_handler(dbs[1], query, auth_obj)
 
     # Authenticate drive #
     gauth = auth.GoogleAuth()
@@ -708,11 +707,11 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
                 # If in root directory #
                 if not filePath:
                     # Create dir in UploadDock #
-                    os.mkdir(f'{Globals.DIRS[4]}\\{dirname}')
+                    os.mkdir(f'{global_vars.DIRS[4]}\\{dirname}')
                 # If in recursive directory #
                 else:
                     # Set the path for recursive directory creation #
-                    create_path = Path(f'{Globals.CWD}\\UploadDock\\{filePath}\\{dirname}')
+                    create_path = Path(f'{global_vars.CWD}\\UploadDock\\{filePath}\\{dirname}')
                     # Create dir path in UploadDock #
                     create_path.mkdir(parents=True, exist_ok=True)
 
@@ -723,10 +722,10 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
         # If match for local files #
         if not filePath:
             # Create folder in drive #
-            FolderUpload(drive, None, folder_names, http)
+            folder_upload(drive, None, folder_names, http)
         else:
             # Create folder in UploadDock #
-            FolderUpload(drive, upPath, folder_names, http)
+            folder_upload(drive, upPath, folder_names, http)
 
         for file in file_names:
             # If file is empty ignore and move to next #
@@ -734,9 +733,9 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
                 continue
 
             # If the UploadDock is not being used  #
-            if local_path != Globals.DIRS[4]:
+            if local_path != global_vars.DIRS[4]:
                 # Read file data #
-                file_data = FileHandler(f'{folder_path}\\{file}', 'rb', auth_obj, operation='read')
+                file_data = file_handler(f'{folder_path}\\{file}', 'rb', auth_obj, operation='read')
 
                 # If in plain text, encrypt it #
                 if prompt == 'plain':
@@ -747,22 +746,24 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
                 # If in root directory #
                 if not filePath:
                     # Re-write data in upload dock retaining file structure #
-                    FileHandler(f'{Globals.DIRS[4]}\\{file}', 'wb', auth_obj, operation='write', data=crypt)
+                    file_handler(f'{global_vars.DIRS[4]}\\{file}', 'wb', auth_obj,
+                                 operation='write', data=crypt)
                 # If in recursive directory #
                 else:
                     # Re-write data in upload dock retaining file structure #
-                    FileHandler(f'{Globals.DIRS[4]}\\{filePath}\\{file}', 'wb', auth_obj, operation='write', data=crypt)
+                    file_handler(f'{global_vars.DIRS[4]}\\{filePath}\\{file}', 'wb', auth_obj,
+                                 operation='write', data=crypt)
 
             # If file contains extension suggesting metadata #
             if file.endswith(ext):
                 # If in the base dir #
                 if not filePath:
                     # Strip all the metadata before storing #
-                    strip = MetaStrip(f'{folder_path}\\{file}')
+                    strip = meta_strip(f'{folder_path}\\{file}')
                 # If in a recursive dir #
                 else:
                     # Strip all the metadata before storing #
-                    strip = MetaStrip(f'{folder_path}\\{filePath}\\{file}')
+                    strip = meta_strip(f'{folder_path}\\{filePath}\\{file}')
 
                 # If metadata strip failed, avoid uploading #
                 if not strip:
@@ -771,21 +772,21 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
             # If in root directory #
             if not filePath:
                 # Upload file to Drive #
-                FileUpload(drive, None, Globals.DIRS[4], file, http, None)
+                file_upload(drive, None, global_vars.DIRS[4], file, http, None)
             # If in recursive directory #
             else:
                 # Upload file to Drive #
-                FileUpload(drive, upPath, Globals.DIRS[4], file, http, filePath)
+                file_upload(drive, upPath, global_vars.DIRS[4], file, http, filePath)
 
             print(f'File: {file}')
 
             # If the user wants to delete data after uploading #
             if prompt2 == 'y':
-                SecureDelete(f'{folder_path}\\{file}')
+                secure_delete(f'{folder_path}\\{file}')
 
     # Clear all data in UploadDock #
-    rmtree(Globals.DIRS[4])
-    os.mkdir(Globals.DIRS[4])
+    rmtree(global_vars.DIRS[4])
+    os.mkdir(global_vars.DIRS[4])
 
     if prompt2 == 'y':
         for folder_path, folder_names, _ in os.walk(local_path):
@@ -793,5 +794,4 @@ def Upload(dbs: tuple, auth_obj: object, local_path: str):
 
     parent_id = ''
 
-    print(f'\n\n[SUCCESS] Files from {local_path} have been uploaded')
-    time.sleep(2)
+    return print(f'\n\n[SUCCESS] Files from {local_path} have been uploaded')
