@@ -42,7 +42,7 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
         cmd = syntax_tuple[0]
     # If OS is Linux #
     else:
-        re_path = re.compile(r'^(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
+        re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
         cmd = syntax_tuple[1]
 
     re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
@@ -77,7 +77,7 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
         # Upload encrypted data #
         if prompt == 'upload':
             while True:
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path for upload,'
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path for upload,'
                                    ' \"Storage\" for contents from storage database or enter for '
                                    'UploadDock:\n')
                 # If regex fails and Storage and enter was not input #
@@ -101,7 +101,7 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
         # Store data in storage database #
         elif prompt == 'store':
             while True:
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path'
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path'
                                    ' for database storage or enter for Import:\n')
                 # If regex fails and enter was not input #
                 if not re.search(re_path, local_path) and local_path != '':
@@ -120,7 +120,7 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
             while True:
                 directory = input('Enter folder name to be recursively exported from the '
                                   'database: ')
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path to export to or'
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
                                    ' hit enter export in Documents:\n')
                 # If path regex fails and enter was not input or folder regex fails #
                 if not re.search(re_path, local_path) and local_path != '' or \
@@ -152,17 +152,17 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
                 if not re.search(re_user, username) or not re.search(re_pass, import_pass):
                     print_err('Improper format .. try again', 2)
                     continue
-               
+
                 break
 
             import_key(db_tuple[0], auth_obj, username, import_pass)
 
         # Decrypt data in DecryptDock
         elif prompt == 'decrypt':
-            while True: 
+            while True:
                 username = input('Enter username of data to decrypt or hit enter for your own '
                                  'data: ')
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or \\Linux\\path to export to or'
+                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
                                    ' enter for DecryptDock\n')
                 # If username regex fails and enter was not entered
                 # or path regex fails and enter was not entered #
@@ -182,7 +182,12 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
         elif prompt == 'share':
             provider = None
 
-            app_secret = f'{global_vars.CWD}\\AppSecret.txt'
+            # If OS is Windows #
+            if os.name == 'nt':
+                app_secret = f'{global_vars.CWD}\\AppSecret.txt'
+            # If OS is Linux #
+            else:
+                app_secret = f'{global_vars.CWD}/AppSecret.txt'
 
             # If AppSecret for Gmail login is missing #
             if not global_vars.file_check(app_secret):
@@ -263,9 +268,16 @@ def start_check(db: str) -> bool:
     global log
     misses = []
 
-    # Compile parsing regex's #
-    re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
-    re_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
+    # If OS is Windows #
+    if os.name == 'nt':
+        # Compile parsing regex's #
+        re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
+        re_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
+    # If OS is Linux #
+    else:
+        # Compile parsing regex's #
+        re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^/]{1,30}(?=\.)')
+        re_dir = re.compile(r'(?=[a-zA-Z\d])[^/]{1,30}(?=$)')
 
     # If OS is Windows where recycling bin exists #
     if os.name == 'nt':
@@ -365,11 +377,11 @@ def password_input(syntax_tuple: tuple, auth_obj) -> object:
     while True:
         # Clear display #
         system_cmd(cmd, None, None, 2)
-        
+
         # If user maxed attempts (3 sets of 3 failed password attempts) #
         if count == 12:
-            # Code can be added to notify administrator or 
-            # raise an alert to remote system # 
+            # Code can be added to notify administrator or
+            # raise an alert to remote system #
 
             # If OS is Windows #
             if os.name == 'nt':

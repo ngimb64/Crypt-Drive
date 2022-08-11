@@ -408,12 +408,19 @@ def hd_crawl(items: list) -> list:
                 if items[0].endswith('.db') and items[0].endswith('.txt'):
                     break
 
+                # If OS is Windows #
+                if os.name == 'nt':
+                    curr_folder = f'{dir_path}\\{folder}'
+                # If OS is Linux #
+                else:
+                    curr_folder = f'{dir_path}/{folder}'
+
                 # Iterate through passed in missing list #
                 for item in items:
                     # If the folder and item are CryptDbs #
                     if folder == item == 'CryptDbs':
                         # Copy and delete source folder #
-                        data_copy(f'{dir_path}\\{folder}', global_vars.DIRS[0])
+                        data_copy(curr_folder, global_vars.DIRS[0])
                         print(f'Folder: {item} recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -422,7 +429,7 @@ def hd_crawl(items: list) -> list:
                     # If the folder and item are CryptImport #
                     elif folder == item == 'CryptImport':
                         # Copy and delete source folder #
-                        data_copy(f'{dir_path}\\{folder}', global_vars.DIRS[1])
+                        data_copy(curr_folder, global_vars.DIRS[1])
                         print(f'Folder: {item} recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -431,7 +438,7 @@ def hd_crawl(items: list) -> list:
                     # If the folder and item are CryptKeys #
                     elif folder == item == 'CryptKeys':
                         # Copy and delete source folder #
-                        data_copy(f'{dir_path}\\{folder}', global_vars.DIRS[2])
+                        data_copy(curr_folder, global_vars.DIRS[2])
                         print(f'Folder: {item} recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -440,7 +447,7 @@ def hd_crawl(items: list) -> list:
                     # If the folder and item are DecryptDock #
                     elif folder == item == 'DecryptDock':
                         # Copy and delete source folder #
-                        data_copy(f'{dir_path}\\{folder}', global_vars.DIRS[3])
+                        data_copy(curr_folder, global_vars.DIRS[3])
                         print(f'Folder: {item} recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -449,7 +456,7 @@ def hd_crawl(items: list) -> list:
                     # If the folder and item are UploadDock #
                     elif folder == item == 'UploadDock':
                         # Copy and delete source folder #
-                        data_copy(f'{dir_path}\\{folder}', global_vars.DIRS[4])
+                        data_copy(curr_folder, global_vars.DIRS[4])
                         print(f'Folder: {item} recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -463,12 +470,26 @@ def hd_crawl(items: list) -> list:
                 if not item.endswith('.dbs') or not item.endswith('.txt'):
                     continue
 
+                # If OS is Windows #
+                if os.name == 'nt':
+                    curr_file = f'{dir_path}\\{file}'
+                # If OS is Linux #
+                else:
+                    curr_file = f'{dir_path}/{file}'
+
                 # If file is text #
                 if file.endswith('txt') and file == item:
                     # If file is one of the key components #
                     if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
+                        # If OS is Windows #
+                        if os.name == 'nt':
+                            dest_file = f'{global_vars.DIRS[2]}\\{file}'
+                        # If OS is Linux #
+                        else:
+                            dest_file = f'{global_vars.DIRS[2]}/{file}'
+
                         # Copy and delete source file #
-                        data_copy(f'{dir_path}\\{file}', f'{global_vars.DIRS[2]}\\{file}')
+                        data_copy(curr_file, dest_file)
                         print(f'File: {item}.txt recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)
@@ -477,8 +498,15 @@ def hd_crawl(items: list) -> list:
                 # If file is database #
                 elif file.endswith('.db') and file == item:
                     if file in ('crypt_keys.db', 'crypt_storage.db'):
+                        # If OS is Windows #
+                        if os.name == 'nt':
+                            dest_file = f'{global_vars.DIRS[0]}\\{file}'
+                        # If OS is Linux #
+                        else:
+                            dest_file = f'{global_vars.DIRS[0]}/{file}'
+
                         # Copy and delete source file #
-                        data_copy(f'{dir_path}\\{file}', f'{global_vars.DIRS[0]}\\{file}')
+                        data_copy(curr_file, dest_file)
                         print(f'File: {item}.db recovered')
                         # Remove recovered item from missing list #
                         items.remove(item)

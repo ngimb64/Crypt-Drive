@@ -29,8 +29,8 @@ class AuthCrypt:
             plain = Fernet(self._secret_key).decrypt(self._password)
 
         # If invalid token or encoding error #
-        except (InvalidToken, TypeError, Error) as err:
-            print_err(f'Error occurred during fernet secret decryption: {err}', 2)
+        except (InvalidToken, TypeError, Error) as crypt_err:
+            print_err(f'Error occurred during fernet secret decryption: {crypt_err}', 2)
             sys.exit(3)
 
         return plain
@@ -50,8 +50,8 @@ class AuthCrypt:
             plain = aesccm.decrypt(self._nonce, self._db_key, secret)
 
         # If authentication tag is invalid #
-        except InvalidTag as err:
-            print_err(f'Database key did not successfully decrypt: {err}', 2)
+        except InvalidTag as crypt_err:
+            print_err(f'Database key did not successfully decrypt: {crypt_err}', 2)
             sys.exit(4)
 
         return plain

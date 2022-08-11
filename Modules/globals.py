@@ -22,11 +22,20 @@ def initialize(path: str):
     # Create string IO object for logging #
     LOG_STREAM = StringIO()
 
-    FILES = (f'{path}\\CryptKeys\\aesccm.txt', f'{path}\\CryptKeys\\nonce.txt',
-             f'{path}\\CryptKeys\\db_crypt.txt', f'{path}\\CryptKeys\\secret_key.txt')
-    DBS = (f'{path}\\CryptDbs\\crypt_keys.db', f'{path}\\CryptDbs\\crypt_storage.db')
-    DIRS = (f'{path}\\CryptDbs', f'{path}\\CryptImport', f'{path}\\CryptKeys',
-            f'{path}\\DecryptDock', f'{path}\\UploadDock')
+    # IF the OS is Windows #
+    if os.name == 'nt':
+        FILES = (f'{path}\\CryptKeys\\aesccm.txt', f'{path}\\CryptKeys\\nonce.txt',
+                 f'{path}\\CryptKeys\\db_crypt.txt', f'{path}\\CryptKeys\\secret_key.txt')
+        DBS = (f'{path}\\CryptDbs\\crypt_keys.db', f'{path}\\CryptDbs\\crypt_storage.db')
+        DIRS = (f'{path}\\CryptDbs', f'{path}\\CryptImport', f'{path}\\CryptKeys',
+                f'{path}\\DecryptDock', f'{path}\\UploadDock')
+    # If the OS is Linux #
+    else:
+        FILES = (f'{path}/CryptKeys/aesccm.txt', f'{path}/CryptKeys/nonce.txt',
+                 f'{path}/CryptKeys/db_crypt.txt', f'{path}/CryptKeys/secret_key.txt')
+        DBS = (f'{path}/CryptDbs/crypt_keys.db', f'{path}/CryptDbs/crypt_storage.db')
+        DIRS = (f'{path}/CryptDbs', f'{path}/CryptImport', f'{path}/CryptKeys',
+                f'{path}/DecryptDock', f'{path}/UploadDock')
 
     # Check if text files exist #
     key_check = file_check(FILES[0])

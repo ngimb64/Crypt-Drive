@@ -14,8 +14,8 @@ from pydrive2.drive import GoogleDrive
 # Custom Modules #
 import Modules.globals as global_vars
 from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
-                          fetch_upload_comps, file_handler, get_database_comp, meta_strip, msg_format, \
-                          msg_send, print_err, query_handler, secure_delete
+                          fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
+                          msg_format, msg_send, print_err, query_handler, secure_delete
 
 
 # Global variables #
@@ -68,7 +68,8 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
     # Compile regex based on folder passed in #
     re_folder = re.compile(f'{folder}')
     # Compile regex for parsing out Documents from stored path #
-    re_relPath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
+    re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
+    re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
 
     # Get username of currently logged-in user #
     usr = getuser()
@@ -94,7 +95,7 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
                     file_path = f'C:\\Users\\{usr}\\{row[1]}\\{row[0]}'
                 # If OS is Linux #
                 else:
-                    file_path = f'\\home\\{usr}\\{row[1]}\\{row[0]}'
+                    file_path = f'/home/{usr}/{row[1]}/{row[0]}'
 
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -104,14 +105,42 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
             # User specified file path #
             else:
                 # Use regex to strip out Documents from path #
-                path_parse = re.search(re_relPath, row[1])
+                win_path_parse = re.search(re_rel_winpath, row[1])
+                # Use regex to strip out Documents from path #
+                lin_path_parse = re.search(re_rel_linpath, row[1])
 
-                # If regex fails avoid appending relative path in db #
-                if not path_parse:
-                    file_path = f'{path}\\{row[0]}'
+                # If stored database path fails to match for both OS formats #
+                if not win_path_parse or lin_path_parse:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        file_path = f'{path}\\{row[0]}'
+                    # If OS is Linux #
+                    else:
+                        file_path = f'{path}/{row[0]}'
                 else:
-                    # Append relative path to user path to recursively rebuild #
-                    file_path = f'{path}\\{path_parse.group(0)}\\{row[0]}'
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        # If the stored path is in Linux format #
+                        if lin_path_parse:
+                            # Replace forward slash with backslash #
+                            path_parse = row[1].replace('/', '\\')
+                        else:
+                            path_parse = row[1]
+
+                        # Append relative path to user path to recursively rebuild #
+                        file_path = f'{path}\\{path_parse}\\{row[0]}'
+
+                    # If OS is Linux #
+                    else:
+                        # If the stored path is in Windows format #
+                        if win_path_parse:
+                            # Replace backwards slash with forward slash #
+                            path_parse = row[1].replace('\\', '/')
+                        else:
+                            path_parse = row[1]
+
+                        # Append relative path to user path to recursively rebuild #
+                        file_path = f'{path}/{path_parse}/{row[0]}'
 
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -174,18 +203,26 @@ def db_store(dbs: tuple, auth_obj: object, path: str):
         for file in file_names:
             # Cut any path higher in hierarchy than Documents on the path passed in.
             # Which enables the ability to recursively rebuild with any user with keys #
-            rel_path = re.search(r'Documents\\[a-zA-Z\d._\\]{1,240}$', dir_path)
+
+            # If OS is Linux #
+            if os.name == 'nt':
+                rel_path = re.search(r'Documents\\[a-zA-Z\d._\\]{1,240}$', dir_path)
+                curr_file = f'{dir_path}\\{file}'
+            # If OS is Linux #
+            else:
+                rel_path = re.search(r'Documents/[a-zA-Z\d._/]{1,240}$', dir_path)
+                curr_file = f'{dir_path}/{file}'
 
             # If file contains extension with metadata #
             if file.endswith(ext):
                 # Strip all the metadata before storing #
-                strip = meta_strip(f'{dir_path}\\{file}')
+                strip = meta_strip(curr_file)
                 # If metadata strip failed, avoid storing #
                 if not strip:
                     continue
 
             # Read file data #
-            file_data = file_handler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
+            file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
 
             # If in plain text, encrypt it #
             if prompt == 'plain':
@@ -206,12 +243,13 @@ def db_store(dbs: tuple, auth_obj: object, path: str):
             # If user wants to delete stored files #
             if prompt2 == 'y':
                 # Delete (unlink) from file system after storage #
-                secure_delete(f'{dir_path}\\{file}')
+                secure_delete(curr_file)
 
     if prompt2 == 'y':
         # Recursively delete leftover empty folders
         for dir_path, dir_names, _ in os.walk(path):
-            [os.rmdir(f'{dir_path}\\{folder}') for folder in dir_names]
+            [os.rmdir(f'{dir_path}\\{folder}') if os.name == 'nt'
+             else os.rmdir(f'{dir_path}/{folder}') for folder in dir_names]
 
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
@@ -261,14 +299,22 @@ def decryption(db: str, user: str, auth_obj: object, local_path: str):
 
         for file in file_names:
             print(f'File: {file}')
+
+            # If OS is Windows #
+            if os.name == 'nt':
+                curr_file = f'{dir_path}\\{file}'
+            # If OS is Linux #
+            else:
+                curr_file = f'{dir_path}/{file}'
+
             # Read the encrypted file data #
-            file_data = file_handler(f'{dir_path}\\{file}', 'rb', auth_obj, operation='read')
+            file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
             # Decrypt the encrypted file data #
             plain = decryptor.update(file_data)
             # Delete the encrypted file data #
-            secure_delete(f'{dir_path}\\{file}')
+            secure_delete(curr_file)
             # Re-write the plain text data to file #
-            file_handler(f'{dir_path}\\{file}', 'wb', auth_obj, operation='write', data=plain)
+            file_handler(curr_file, 'wb', auth_obj, operation='write', data=plain)
 
     return print('\n\n[SUCCESS] Data has been decrypted')
 
@@ -287,17 +333,30 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
     """
     # If upload is in the root dir #
     if not up_path:
+        # If OS is Windows #
+        if os.name == 'nt':
+            curr_file = f'{dir_path}\\{file}'
+        # If OS is Linux #
+        else:
+            curr_file = f'{dir_path}/{file}'
+
         # Create Drive file object #
         file_obj = drive.CreateFile({'title': file})
         # Set Drive object content to locally stored file #
-        file_obj.SetContentFile(f'{dir_path}\\{file}')
+        file_obj.SetContentFile(curr_file)
         # Upload file & pass http object into upload call #
         file_obj.upload(param={'http': http})
     else:
+        # If OS is Windows #
+        if os.name == 'nt':
+            curr_file = f'{dir_path}\\{local_path}\\{file}'
+        # If OS is Linux #
+        else:
+            curr_file = f'{dir_path}/{local_path}/{file}'
+
         # Get List of folders in upload path #
         folders = drive.ListFile({'q': 'title=\'' + up_path + '\' and mimeType=''\'application/vnd.'
-                                                              'google-apps.folder\' and '
-                                                              'trashed=false'}).GetList()
+                                       'google-apps.folder\' and trashed=false'}).GetList()
         # Iterate through folders in upload path #
         for folder in folders:
             # If folder matches extension path, create it in folder #
@@ -305,7 +364,7 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
                 # Create Drive file object in parent dir #
                 file_obj = drive.CreateFile({'title': file, 'parents': [{'id': folder['id']}]})
                 # Set Drive object content to locally stored file in recursive dir #
-                file_obj.SetContentFile(f'{dir_path}\\{local_path}\\{file}')
+                file_obj.SetContentFile(curr_file)
                 # Upload & pass http object into upload call #
                 file_obj.upload(param={'http': http})
                 break
@@ -378,10 +437,18 @@ def import_key(db: str, auth_obj: object, user: str, user_pass: str):
     :param user_pass:  Temporary key sharing password.
     :return:  Prints successful operation or error message.
     """
-    key_path = f'{global_vars.DIRS[1]}\\{user}_decrypt.txt'
-    key_nonce_path = f'{global_vars.DIRS[1]}\\{user}_key_nonce.txt'
-    aesccm_path = f'{global_vars.DIRS[1]}\\{user}_aesccm.txt'
-    nonce_path = f'{global_vars.DIRS[1]}\\{user}_nonce.txt'
+    # If OS is Windows #
+    if os.name == 'nt':
+        key_path = f'{global_vars.DIRS[1]}\\{user}_decrypt.txt'
+        key_nonce_path = f'{global_vars.DIRS[1]}\\{user}_key_nonce.txt'
+        aesccm_path = f'{global_vars.DIRS[1]}\\{user}_aesccm.txt'
+        nonce_path = f'{global_vars.DIRS[1]}\\{user}_nonce.txt'
+    # If OS is Linux #
+    else:
+        key_path = f'{global_vars.DIRS[1]}/{user}_decrypt.txt'
+        key_nonce_path = f'{global_vars.DIRS[1]}/{user}_key_nonce.txt'
+        aesccm_path = f'{global_vars.DIRS[1]}/{user}_aesccm.txt'
+        nonce_path = f'{global_vars.DIRS[1]}/{user}_nonce.txt'
 
     # Confirm all critical files to operation are present #
     if not global_vars.file_check(key_path) or not global_vars.file_check(key_nonce_path) \
@@ -622,7 +689,8 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
             return print_err('No contents in storage database to upload', 2)
 
         # Compile regex for parsing out Documents from stored path #
-        re_relPath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
+        re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
+        re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
         # Set local_path to UploadDock #
         local_path = global_vars.DIRS[4]
 
@@ -636,13 +704,40 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                 text = b64decode(row[2])
 
                 # Use regex to strip out Documents from path #
-                path_parse = re.search(re_relPath, row[1])
-                # If regex fails avoid appending relative path in db #
-                if not path_parse:
-                    file_path = f'{local_path}\\{row[0]}'
+                win_path_parse = re.search(re_rel_winpath, row[1])
+                # Use regex to strip out Documents from path #
+                lin_path_parse = re.search(re_rel_linpath, row[1])
+                # If stored database path fails to match for both OS formats #
+                if not win_path_parse or lin_path_parse:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        file_path = f'{local_path}\\{row[0]}'
+                    # If OS is Linux #
+                    else:
+                        file_path = f'{local_path}/{row[0]}'
                 else:
-                    # Append relative path to user path to recursively rebuild #
-                    file_path = f'{local_path}\\{path_parse.group(0)}\\{row[0]}'
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        # If the stored path is in Linux format #
+                        if lin_path_parse:
+                            # Replace forward slash with backslash #
+                            path_parse = row[1].replace('/', '\\')
+                        else:
+                            path_parse = row[1]
+
+                        # Append relative path to user path to recursively rebuild #
+                        file_path = f'{local_path}\\{path_parse}\\{row[0]}'
+                    # If OS is Linux #
+                    else:
+                        # If the stored path is in Windows format #
+                        if win_path_parse:
+                            # Replace backwards slash with forward slash #
+                            path_parse = row[1].replace('\\', '/')
+                        else:
+                            path_parse = row[1]
+
+                        # Append relative path to user path to recursively rebuild #
+                        file_path = f'{local_path}/{path_parse}/{row[0]}'
 
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -664,13 +759,19 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
     http = drive.auth.Get_Http_Object()
 
     # Grab the rightmost directory of the current path for upload #
-    reg_upPath = re.compile(r'[^\\]{1,30}$')
+    if os.name == 'nt':
+        reg_upPath = re.compile(r'[^\\]{1,30}$')
+    else:
+        reg_upPath = re.compile(r'[^/]{1,30}$')
 
     # Grab only the rightmost directory of path save result in other regex 
     # as anchor point for confirming recursive directories while crawling #
     reg_pathEdge = re.search(reg_upPath, local_path)
     # Insert path edge regex match into regex to match any path past the edge anchor point #
-    reg_filePath = re.compile(r'(?<={0}\\).+$'.format(str(reg_pathEdge.group(0))))
+    if os.name == 'nt':
+        reg_filePath = re.compile(r'(?<={0}\\).+$'.format(str(reg_pathEdge.group(0))))
+    else:
+        reg_filePath = re.compile(r'(?<={0}/).+$'.format(str(reg_pathEdge.group(0))))
 
     # List of file extension types #
     ext = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
@@ -706,12 +807,26 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
             try:
                 # If in root directory #
                 if not filePath:
-                    # Create dir in UploadDock #
-                    os.mkdir(f'{global_vars.DIRS[4]}\\{dirname}')
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        # Create dir in UploadDock #
+                        os.mkdir(f'{global_vars.DIRS[4]}\\{dirname}')
+                    # If OS is Linux #
+                    else:
+                        # Create dir in UploadDock #
+                        os.mkdir(f'{global_vars.DIRS[4]}/{dirname}')
+
                 # If in recursive directory #
                 else:
-                    # Set the path for recursive directory creation #
-                    create_path = Path(f'{global_vars.CWD}\\UploadDock\\{filePath}\\{dirname}')
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        # Set the path for recursive directory creation #
+                        create_path = Path(f'{global_vars.CWD}\\UploadDock\\{filePath}\\{dirname}')
+                    # If OS is Linux #
+                    else:
+                        # Set the path for recursive directory creation #
+                        create_path = Path(f'{global_vars.CWD}/UploadDock/{filePath}/{dirname}')
+
                     # Create dir path in UploadDock #
                     create_path.mkdir(parents=True, exist_ok=True)
 
@@ -728,14 +843,21 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
             folder_upload(drive, upPath, folder_names, http)
 
         for file in file_names:
+            # If OS is Windows #
+            if os.name == 'nt':
+                curr_file = f'{folder_path}\\{file}'
+            # If OS is Linux #
+            else:
+                curr_file = f'{folder_path}/{file}'
+
             # If file is empty ignore and move to next #
-            if not os.stat(f'{folder_path}\\{file}').st_size > 0:
+            if not os.stat(curr_file).st_size > 0:
                 continue
 
             # If the UploadDock is not being used  #
             if local_path != global_vars.DIRS[4]:
                 # Read file data #
-                file_data = file_handler(f'{folder_path}\\{file}', 'rb', auth_obj, operation='read')
+                file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
 
                 # If in plain text, encrypt it #
                 if prompt == 'plain':
@@ -745,25 +867,51 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
 
                 # If in root directory #
                 if not filePath:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        upload_dock_file = f'{global_vars.DIRS[4]}\\{file}'
+                    # If OS is Linux #
+                    else:
+                        upload_dock_file = f'{global_vars.DIRS[4]}/{file}'
+
                     # Re-write data in upload dock retaining file structure #
-                    file_handler(f'{global_vars.DIRS[4]}\\{file}', 'wb', auth_obj,
-                                 operation='write', data=crypt)
+                    file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
                 # If in recursive directory #
                 else:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        upload_dock_file = f'{global_vars.DIRS[4]}\\{filePath}\\{file}'
+                    # If OS is Linux #
+                    else:
+                        upload_dock_file = f'{global_vars.DIRS[4]}/{filePath}/{file}'
+
                     # Re-write data in upload dock retaining file structure #
-                    file_handler(f'{global_vars.DIRS[4]}\\{filePath}\\{file}', 'wb', auth_obj,
-                                 operation='write', data=crypt)
+                    file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
 
             # If file contains extension suggesting metadata #
             if file.endswith(ext):
                 # If in the base dir #
                 if not filePath:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        curr_file = f'{folder_path}\\{file}'
+                    # If OS is Linux #
+                    else:
+                        curr_file = f'{folder_path}/{file}'
+
                     # Strip all the metadata before storing #
-                    strip = meta_strip(f'{folder_path}\\{file}')
+                    strip = meta_strip(curr_file)
                 # If in a recursive dir #
                 else:
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        curr_file = f'{folder_path}\\{filePath}\\{file}'
+                    # If OS is Linux #
+                    else:
+                        curr_file = f'{folder_path}/{filePath}/{file}'
+
                     # Strip all the metadata before storing #
-                    strip = meta_strip(f'{folder_path}\\{filePath}\\{file}')
+                    strip = meta_strip(curr_file)
 
                 # If metadata strip failed, avoid uploading #
                 if not strip:
@@ -782,7 +930,14 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
 
             # If the user wants to delete data after uploading #
             if prompt2 == 'y':
-                secure_delete(f'{folder_path}\\{file}')
+                # If OS is Windows #
+                if os.name == 'nt':
+                    curr_file = f'{folder_path}\\{file}'
+                # If OS is Linux #
+                else:
+                    curr_file = f'{folder_path}/{file}'
+
+                secure_delete(curr_file)
 
     # Clear all data in UploadDock #
     rmtree(global_vars.DIRS[4])
@@ -790,7 +945,8 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
 
     if prompt2 == 'y':
         for folder_path, folder_names, _ in os.walk(local_path):
-            [os.rmdir(f'{folder_path}\\{dirname}') for dirname in folder_names]
+            [os.rmdir(f'{folder_path}\\{dirname}') if os.name == 'nt'
+             else os.rmdir(f'{folder_path}/{dirname}') for dirname in folder_names]
 
     parent_id = ''
 
