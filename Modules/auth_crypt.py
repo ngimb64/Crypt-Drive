@@ -1,6 +1,6 @@
 """ Built-in modules """
+import binascii
 import sys
-from binascii import Error
 # External modules #
 from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
@@ -12,11 +12,11 @@ from Modules.utils import print_err
 class AuthCrypt:
     """ Class to manage cryptographic components """
     def __init__(self):
-        self._aesccm = b''
-        self._nonce = b''
-        self._db_key = b''
-        self._secret_key = b''
-        self._password = b''
+        self.aesccm = b''
+        self.nonce = b''
+        self.db_key = b''
+        self.secret_key = b''
+        self.password = b''
 
     def get_plain_secret(self) -> bytes:
         """
@@ -26,10 +26,10 @@ class AuthCrypt:
         """
         try:
             # Decrypt hashed secret #
-            plain = Fernet(self._secret_key).decrypt(self._password)
+            plain = Fernet(self.secret_key).decrypt(self.password)
 
         # If invalid token or encoding error #
-        except (InvalidToken, TypeError, Error) as crypt_err:
+        except (binascii.Error, InvalidToken, TypeError, ValueError) as crypt_err:
             print_err(f'Error occurred during fernet secret decryption: {crypt_err}', 2)
             sys.exit(3)
 
@@ -43,14 +43,14 @@ class AuthCrypt:
         :return:  Decrypted database key.
         """
         # Initialize AESCCM algo object #
-        aesccm = AESCCM(self._aesccm)
+        aesccm = AESCCM(self.aesccm)
 
         try:
             # Decrypt database Fernet key #
-            plain = aesccm.decrypt(self._nonce, self._db_key, secret)
+            plain = aesccm.decrypt(self.nonce, self.db_key, secret)
 
         # If authentication tag is invalid #
-        except InvalidTag as crypt_err:
+        except (InvalidTag, ValueError) as crypt_err:
             print_err(f'Database key did not successfully decrypt: {crypt_err}', 2)
             sys.exit(4)
 

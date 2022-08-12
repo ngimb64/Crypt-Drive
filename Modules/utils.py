@@ -15,8 +15,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
 from threading import BoundedSemaphore
-from sqlite3 import Warning, Error, DatabaseError, IntegrityError, ProgrammingError, \
-                    OperationalError, NotSupportedError
+from sqlite3 import Error, DatabaseError, IntegrityError, ProgrammingError, OperationalError, \
+                    NotSupportedError
 # External Modules #
 import keyring
 from argon2 import PasswordHasher
@@ -43,18 +43,18 @@ def cha_init(key: bytes, nonce: bytes) -> Cipher:
     return Cipher(algo, mode=None)
 
 
-def cha_decrypt(auth_obj: object, db: str) -> tuple:
+def cha_decrypt(auth_obj: object, db_name: str) -> tuple:
     """
     Retrieve ChaCha components from Keys db, decoding and decrypting them.
 
     :param auth_obj:  The authentication instance.
-    :param db:  Database name tuple.
+    :param db_name:  Keys database name.
     :return:  The decrypted ChaCha20 key and nonce, print message on error.
     """
     # Get the decrypted database key #
     db_key = get_database_comp(auth_obj)
     # Attempt to Retrieve the upload key and nonce from Keys db #
-    key_call, nonce_call = fetch_upload_comps(db, 'upload_key', 'upload_nonce', auth_obj)
+    key_call, nonce_call = fetch_upload_comps(db_name, 'upload_key', 'upload_nonce', auth_obj)
 
     # If decrypt key doesn't exist in db #
     if not key_call or not nonce_call:
@@ -93,15 +93,15 @@ def create_databases(dbs: tuple):
     :return:  Nothing
     """
     # Iterate through db tuple #
-    for db in dbs:
-        if db == 'crypt_keys':
-            query = global_vars.db_keys(db)
-        elif db == 'crypt_storage':
-            query = global_vars.db_storage(db)
+    for db_name in dbs:
+        if db_name == 'crypt_keys':
+            query = global_vars.db_keys(db_name)
+        elif db_name == 'crypt_storage':
+            query = global_vars.db_storage(db_name)
         else:
             continue
 
-        query_handler(db, query, None, create=True)
+        query_handler(db_name, query, None, create=True)
 
 
 def create_dirs():
@@ -138,11 +138,11 @@ def data_copy(source: str, dest: str):
     secure_delete(source)
 
 
-def db_check(db: str, secret: bytes, auth_obj: object) -> object:
+def db_check(db_name: str, secret: bytes, auth_obj: object) -> object:
     """
     Checks the upload contents within the keys database and populates authentication object.
 
-    :param db:  Database name tuple.
+    :param db_name:  Keys database name.
     :param secret:  User input password to be confirmed.
     :param auth_obj:  The authentication instance.
     :return:  Populated authentication object.
@@ -159,7 +159,7 @@ def db_check(db: str, secret: bytes, auth_obj: object) -> object:
         db_key = aesccm.decrypt(nonce, crypt, secret)
 
     # If authentication tag is invalid #
-    except (InvalidTag, TypeError):
+    except (InvalidTag, TypeError, ValueError):
         print_err('Incorrect unlock password entered', 2)
         sys.exit(2)
 
@@ -174,12 +174,12 @@ def db_check(db: str, secret: bytes, auth_obj: object) -> object:
     auth_obj.password = crypt_secret
 
     # Retrieve upload key from database #
-    query = global_vars.db_retrieve(db, 'upload_key')
-    upload_call = query_handler(db, query, None, fetchone=True)
+    query = global_vars.db_retrieve(db_name, 'upload_key')
+    upload_call = query_handler(db_name, query, None, fetchone=True)
 
     # Retrieve nonce from database #
-    query = global_vars.db_retrieve(db, 'upload_nonce')
-    nonce_call = query_handler(db, query, None, fetchone=True)
+    query = global_vars.db_retrieve(db_name, 'upload_nonce')
+    nonce_call = query_handler(db_name, query, None, fetchone=True)
 
     # If the upload key call fails #
     if not upload_call or not nonce_call:
@@ -195,8 +195,8 @@ def db_check(db: str, secret: bytes, auth_obj: object) -> object:
             upload_key = b64encode(crypt_key)
 
             # Send upload key to key database #
-            query = global_vars.db_insert(db, 'upload_key', upload_key.decode('utf-8'))
-            query_handler(db, query, None)
+            query = global_vars.db_insert(db_name, 'upload_key', upload_key.decode('utf-8'))
+            query_handler(db_name, query, None)
 
         if not nonce_call:
             print('Creating new upload nonce')
@@ -206,8 +206,8 @@ def db_check(db: str, secret: bytes, auth_obj: object) -> object:
             nonce = b64encode(crypt_nonce)
 
             # Send nonce to keys database #
-            query = global_vars.db_insert(db, 'upload_nonce', nonce.decode('utf-8'))
-            query_handler(db, query, None)
+            query = global_vars.db_insert(db_name, 'upload_nonce', nonce.decode('utf-8'))
+            query_handler(db_name, query, None)
     else:
         # Confirm retrieved upload key/nonce properly decode & decrypt #
         _ = decrypt_db_data(db_key, upload_call[1])
@@ -289,34 +289,34 @@ def error_query(err_path: str, err_mode: str, err_obj: object):
         print_err(f'Unexpected file operation occurred accessing {err_path}: {err_obj.errno}', 2)
 
 
-def fetch_upload_comps(db: str, key_name: str, nonce_name: str, auth_obj: object) -> tuple:
+def fetch_upload_comps(db_name: str, key_name: str, nonce_name: str, auth_obj: object) -> tuple:
     """
     Retrieves upload components from keys database.
 
-    :param db:  Database name tuple.
+    :param db_name:  Keys database name.
     :param key_name:  Name of key to be retrieved.
     :param nonce_name:  Name of nonce to be retrieved.
     :param auth_obj:  The authentication instance.
     :return:
     """
     # Retrieve decrypt key from database #
-    query = global_vars.db_retrieve(db, key_name)
-    decrypt_query = query_handler(db, query, auth_obj, fetchone=True)
+    query = global_vars.db_retrieve(db_name, key_name)
+    decrypt_query = query_handler(db_name, query, auth_obj, fetchone=True)
 
     # Retrieve nonce from database #
-    query = global_vars.db_retrieve(db, nonce_name)
-    nonce_query = query_handler(db, query, auth_obj, fetchone=True)
+    query = global_vars.db_retrieve(db_name, nonce_name)
+    nonce_query = query_handler(db_name, query, auth_obj, fetchone=True)
 
     # Return fetched query results #
     return decrypt_query, nonce_query
 
 
-def file_handler(filename: str, op: str, auth_obj: object, operation=None, data=None):
+def file_handler(filename: str, mode: str, auth_obj: object, operation=None, data=None):
     """
     Error validated file handler for read and write operations.
 
     :param filename:  Name of file where the operation will be performed.
-    :param op:  File operation mode that will be performed on file.
+    :param mode:  File operation mode that will be performed on file.
     :param auth_obj:  The authentication instance.
     :param operation:  Toggle to specify file read/write operation.
     :param data:  Input data to be written to file.
@@ -331,27 +331,28 @@ def file_handler(filename: str, op: str, auth_obj: object, operation=None, data=
             sleep_time += 1
 
         try:
-            with open(filename, op) as file:
+            with open(filename, mode, encoding='utf-8') as file:
                 # If read operation was specified #
                 if operation == 'read':
                     return file.read()
+
                 # If write operation was specified #
-                elif operation == 'write':
+                if operation == 'write':
                     return file.write(data)
+
                 # If improper operation specified #
-                else:
-                    print_err('File IO Error: Improper file operation attempted', 2)
-                    # If password is set #
-                    if global_vars.HAS_KEYS:
-                        # Log error #
-                        logger('File IO Error: Improper file operation attempted\n\n',
-                               auth_obj, operation='write', handler='error')
-                    return
+                print_err('File IO Error: Improper file operation attempted', 2)
+                # If password is set #
+                if global_vars.HAS_KEYS:
+                    # Log error #
+                    logger('File IO Error: Improper file operation attempted\n\n',
+                           auth_obj, operation='write', handler='error')
+                break
 
         # If error occurs during file operation #
         except (IOError, FileNotFoundError, OSError) as err:
             # Look up file error #
-            error_query(filename, op, err)
+            error_query(filename, mode, err)
 
             # If password is set #
             if global_vars.HAS_KEYS:
@@ -361,10 +362,12 @@ def file_handler(filename: str, op: str, auth_obj: object, operation=None, data=
             if count == 3:
                 print_err('Maximum consecutive File IO errors detected ..'
                          ' check log & contact support', None)
-                exit(6)
+                sys.exit(6)
 
             time.sleep(sleep_time)
             count += 1
+
+    return None
 
 
 def get_database_comp(auth_obj: object) -> bytes:
@@ -555,13 +558,13 @@ def logger(msg: str, auth_obj: object, operation=None, handler=None):
     if operation == 'write':
         # If writing error #
         if handler == 'error':
-            logging.error(f'\n\n{msg}\n')
+            logging.error('%s\n\n', msg)
         # If writing exception #
         elif handler == 'exception':
-            logging.exception(f'\n\n{msg}\n')
+            logging.exception('%s\n\n', msg)
         else:
-            logging.error(f'\n\nError message write: \"{msg}\" provided '
-                          'without proper handler parameter\n')
+            logging.error('Error message write: \"%s\" provided '
+                          'without proper handler parameter\n\n', msg)
 
         # If the file already has text #
         if text:
@@ -599,11 +602,11 @@ def logger(msg: str, auth_obj: object, operation=None, handler=None):
             write_log(log_name, db_key)
 
 
-def make_keys(db: str, password: str, auth_obj: object) -> object:
+def make_keys(db_names: str, password: str, auth_obj: object) -> object:
     """
     Creates a fresh cryptographic key set, encrypts, and inserts in keys database.
 
-    :param db:  Database name tuple.
+    :param db_names:  Database name tuple.
     :param password:  Hashed input password.
     :param auth_obj:  The authentication instance.
     :return:  The populated authentication instance.
@@ -649,12 +652,12 @@ def make_keys(db: str, password: str, auth_obj: object) -> object:
     auth_obj.password = crypt_hash
 
     # Send encrypted ChaCha20 key to key's database #
-    query = global_vars.db_insert(db, 'upload_key', upload_key.decode('utf-8'))
-    query_handler(db, query, None)
+    query = global_vars.db_insert(db_names, 'upload_key', upload_key.decode('utf-8'))
+    query_handler(db_names, query, None)
 
     # Send encrypted ChaCha20 nonce to keys database #
-    query = global_vars.db_insert(db, 'upload_nonce', cha_nonce.decode('utf-8'))
-    query_handler(db, query, None)
+    query = global_vars.db_insert(db_names, 'upload_nonce', cha_nonce.decode('utf-8'))
+    query_handler(db_names, query, None)
 
     # Write AESCCM key and nonce to files #
     file_handler(global_vars.FILES[0], 'wb', None, operation='write', data=key)
@@ -701,7 +704,7 @@ def meta_strip(file_path: str) -> bool:
             pass
 
         # If file IO error occurs #
-        except (AttributeError, KeyError, IOError):
+        except (AttributeError, IOError):
             # If 3 failed attempts #
             if count == 3:
                 return False
@@ -737,17 +740,17 @@ def msg_format(send_email: str, receiver: str, body: str, files: str) -> MIMEMul
             return msg
 
         # Initialize stream to attach data #
-        p = MIMEBase('application', 'octet-stream')
+        payload = MIMEBase('application', 'octet-stream')
         # Open file and read data as attachment #
         with open(file, 'rb') as attachment:
-            p.set_payload(attachment.read())
+            payload.set_payload(attachment.read())
 
         # Encode & attach current file #
-        encoders.encode_base64(p)
+        encoders.encode_base64(payload)
         # Add header to attachment #
-        p.add_header('Content-Disposition', f'attachment;filename = {file}')
+        payload.add_header('Content-Disposition', f'attachment;filename = {file}')
         # Attach attachment to email #
-        msg.attach(p)
+        msg.attach(payload)
 
     return msg
 
@@ -795,12 +798,12 @@ def print_err(msg: str, seconds):
         time.sleep(seconds)
 
 
-def query_handler(db: str, query: str, auth_obj: object, create=False, fetchone=False,
+def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetchone=False,
                   fetchall=False):
     """
     Facilitates MySQL database query execution.
 
-    :param db:  Database in which the query will be executed.
+    :param db_name:  Database in which the query will be executed.
     :param query:  The query that will be executed upon the database.
     :param auth_obj:  The authentication instance.
     :param create:  Create operation boolean toggle.
@@ -811,15 +814,15 @@ def query_handler(db: str, query: str, auth_obj: object, create=False, fetchone=
     # Change directory #
     os.chdir(global_vars.DIRS[0])
     # Sets maximum number of allowed db connections #
-    maxConns = 1
+    max_conns = 1
     # Locks allowed connections to database #
-    sema_lock = BoundedSemaphore(value=maxConns)
+    sema_lock = BoundedSemaphore(value=max_conns)
 
     # Attempts to connect, continues if already connected #
     with sema_lock:
         try:
             # Connect to passed in database #
-            conn = sqlite3.connect(f'{db}.db')
+            conn = sqlite3.connect(f'{db_name}.db')
 
         # If database already exists #
         except Error:
@@ -834,7 +837,7 @@ def query_handler(db: str, query: str, auth_obj: object, create=False, fetchone=
             if create:
                 conn.close()
                 os.chdir(global_vars.CWD)
-                return
+                return None
 
             # Fetches entry from database then closes
             # connection and moves back a directory #
@@ -856,8 +859,8 @@ def query_handler(db: str, query: str, auth_obj: object, create=False, fetchone=
             conn.commit()
 
         # Database query error handling #
-        except (Warning, Error, DatabaseError, IntegrityError,
-                ProgrammingError, OperationalError, NotSupportedError) as err:
+        except (Error, DatabaseError, IntegrityError, ProgrammingError, OperationalError,
+                NotSupportedError) as err:
             # Prints general error #
             print_err(f'SQL error: {err}', 2)
 
@@ -870,6 +873,8 @@ def query_handler(db: str, query: str, auth_obj: object, create=False, fetchone=
         conn.close()
         # Move back a directory #
         os.chdir(global_vars.CWD)
+
+    return None
 
 
 def secure_delete(path: str, passes=5):
@@ -911,17 +916,17 @@ def system_cmd(cmd: str, stdout, stderr, exec_time: int):
     """
     # Shell-escape command syntax #
     exe = shlex.quote(cmd)
+
     # For built-in shell commands like (cls, clear) #
-    command = Popen(exe, stdout=stdout, stderr=stderr, shell=True)
+    with Popen(exe, stdout=stdout, stderr=stderr, shell=True) as command:
+        try:
+            # Execute command with passed in timeout threshold #
+            command.communicate(exec_time)
 
-    try:
-        # Execute command with passed in timeout threshold #
-        command.communicate(exec_time)
-
-    # Handles process timeouts and errors #
-    except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
-        command.kill()
-        command.communicate()
+        # Handles process timeouts and errors #
+        except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
+            command.kill()
+            command.communicate()
 
 
 def write_log(log_name: str, db_key: bytes):
@@ -936,7 +941,7 @@ def write_log(log_name: str, db_key: bytes):
     log_msg = global_vars.LOG_STREAM.getvalue()
 
     try:
-        with open(log_name, 'w') as file:
+        with open(log_name, 'w', encoding='utf-8') as file:
             # Encrypt log data & store on file #
             crypt = encrypt_db_data(db_key, log_msg.encode())
             file.write(crypt)

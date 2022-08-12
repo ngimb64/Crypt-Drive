@@ -18,13 +18,10 @@ from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
 from Modules.auth_crypt import AuthCrypt
 import Modules.globals as global_vars
-from Modules.menu_functions import *
-from Modules.utils import component_handler, db_check, hd_crawl, logger, print_err, query_handler, \
-                          secure_delete, system_cmd
-
-
-# Global variables #
-global log
+from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
+                                   list_drive, list_storage, upload
+from Modules.utils import component_handler, db_check, file_handler, hd_crawl, logger, print_err, \
+                          query_handler, secure_delete, system_cmd
 
 
 def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
@@ -217,24 +214,24 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
                                    'us-cellular'):
                     print_err('Improper provider selection made', 2)
                     continue
+
+                if carrier == 'verizon':
+                    provider = 'vtext.com'
+                elif carrier == 'sprint':
+                    provider = 'messaging.sprintpcs.com'
+                elif carrier == 'at&t':
+                    provider = 'txt.att.net'
+                elif carrier == 't-mobile':
+                    provider = 'tmomail.com'
+                elif carrier == 'virgin':
+                    provider = 'vmobl.com'
+                elif carrier == 'boost':
+                    provider = 'sms.myboostmobile.com'
+                elif carrier == 'us-cellular':
+                    provider = 'email.uscc.net'
                 else:
-                    if carrier == 'verizon':
-                        provider = 'vtext.com'
-                    elif carrier == 'sprint':
-                        provider = 'messaging.sprintpcs.com'
-                    elif carrier == 'at&t':
-                        provider = 'txt.att.net'
-                    elif carrier == 't-mobile':
-                        provider = 'tmomail.com'
-                    elif carrier == 'virgin':
-                        provider = 'vmobl.com'
-                    elif carrier == 'boost':
-                        provider = 'sms.myboostmobile.com'
-                    elif carrier == 'us-cellular':
-                        provider = 'email.uscc.net'
-                    else:
-                        print_err('Unknown exception occurred selecting phone provider', 2)
-                        continue
+                    print_err('Unknown exception occurred selecting phone provider', 2)
+                    continue
 
                 break
 
@@ -257,15 +254,14 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
         time.sleep(2.5)
 
 
-def start_check(db: str) -> bool:
+def start_check(db_name: str) -> bool:
     """
     Confirms program components are preset. If missing, component recovery is attempted. If that \
     fails results in the creation of a fresh set of components.
 
-    :param db:  The storage database query syntax.
+    :param db_name:  The storage database query syntax.
     :return:  True/False boolean toggle on success/failure.
     """
-    global log
     misses = []
 
     # If OS is Windows #
@@ -337,8 +333,8 @@ def start_check(db: str) -> bool:
                 # If fail item is storage db #
                 else:
                     # Create storage database #
-                    query = global_vars.db_storage(db)
-                    query_handler(db, query, None, create=True)
+                    query = global_vars.db_storage(db_name)
+                    query_handler(db_name, query, None, create=True)
             # If component is in the essential key-set #
             else:
                 # Delete component files #
@@ -455,8 +451,8 @@ def password_input(syntax_tuple: tuple, auth_obj) -> object:
                 auth_obj = component_handler(dbs, prompt, auth_obj)
 
                 return auth_obj
-            else:
-                global_vars.HAS_KEYS = True
+
+            global_vars.HAS_KEYS = True
 
         # Check for database contents and set auth object #
         auth_obj = db_check(dbs[0], prompt.encode(), auth_obj)

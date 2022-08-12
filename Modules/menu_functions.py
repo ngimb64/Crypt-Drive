@@ -1,7 +1,7 @@
+# pylint: disable=W0106,C0209
 """ Built-in modules """
 import os
 import re
-import time
 from base64 import b64encode, b64decode
 from getpass import getuser
 from pathlib import Path
@@ -19,7 +19,7 @@ from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_dat
 
 
 # Global variables #
-parent_id = ''
+PARENT_ID = ''
 
 
 def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
@@ -66,7 +66,7 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
         decryptor = algo.decryptor()
 
     # Compile regex based on folder passed in #
-    re_folder = re.compile(f'{folder}')
+    re_folder = re.compile(f'{re.escape(folder)}')
     # Compile regex for parsing out Documents from stored path #
     re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
     re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
@@ -254,11 +254,11 @@ def db_store(dbs: tuple, auth_obj: object, path: str):
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
 
-def decryption(db: str, user: str, auth_obj: object, local_path: str):
+def decryption(db_names: str, user: str, auth_obj: object, local_path: str):
     """
     Decrypts data located on the file system.
 
-    :param db:  The database name tuple.
+    :param db_names:  The database name tuple.
     :param user:  Username of the data to decrypt.
     :param auth_obj:  The authentication instance.
     :param local_path:  Path to where the data is locally stored on disk.
@@ -275,7 +275,7 @@ def decryption(db: str, user: str, auth_obj: object, local_path: str):
     # Get the decrypted database key #
     db_key = get_database_comp(auth_obj)
     # Attempt to Retrieve the upload key and nonce from Keys db #
-    decrypt_call, nonce_call = fetch_upload_comps(db, user_key, user_nonce, auth_obj)
+    decrypt_call, nonce_call = fetch_upload_comps(db_names, user_key, user_nonce, auth_obj)
 
     # If decrypt key doesn't exist in db #
     if not decrypt_call or not nonce_call:
@@ -380,7 +380,7 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
     :param http:  Http session instance.
     :return:  Nothing
     """
-    global parent_id
+    global PARENT_ID
     add_id = ''
 
     # If there are folders to upload #
@@ -397,8 +397,8 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
 
                 print(f'Directory: {directory}')
             else:
-                folder_list = drive.ListFile({'q': "'{0}' in parents and trashed=false"
-                                             .format(parent_id)}).GetList()
+                folder_list = drive.ListFile({'q': f'\"{PARENT_ID}\" in parents and trashed=false'}
+                                             ).GetList()
 
                 # Iterate through fetched drive folder list #
                 for folder in folder_list:
@@ -419,19 +419,19 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
 
                         break
 
-        if not parent_id:
+        if not PARENT_ID:
             # Set root as parent folder for next iteration
-            parent_id = 'root'
+            PARENT_ID = 'root'
         else:
             # Set added sub-folder id $
-            parent_id = add_id
+            PARENT_ID = add_id
 
 
-def import_key(db: str, auth_obj: object, user: str, user_pass: str):
+def import_key(db_names: str, auth_obj: object, user: str, user_pass: str):
     """
     Import user's key to the encrypted local key database.
 
-    :param db:  Database name tuple.
+    :param db_names:  Database name tuple.
     :param auth_obj:  The authentication instance.
     :param user:  Username associated with key import.
     :param user_pass:  Temporary key sharing password.
@@ -484,12 +484,12 @@ def import_key(db: str, auth_obj: object, user: str, user_pass: str):
     upload_nonce = encrypt_db_data(db_key, user_nonce)
 
     # Send users decrypt key to key database #
-    query = global_vars.db_insert(db, f'{user}_decrypt', upload_key)
-    query_handler(db, query, auth_obj)
+    query = global_vars.db_insert(db_names, f'{user}_decrypt', upload_key)
+    query_handler(db_names, query, auth_obj)
 
     # Send users nonce to database #
-    query = global_vars.db_insert(db, f'{user}_nonce', upload_nonce)
-    query_handler(db, query, auth_obj)
+    query = global_vars.db_insert(db_names, f'{user}_nonce', upload_nonce)
+    query_handler(db_names, query, auth_obj)
 
     # Delete file in Import dir #
     [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
@@ -526,17 +526,17 @@ def list_drive():
     input('\nHit enter to continue ')
 
 
-def list_storage(db: str, auth_obj: object):
+def list_storage(db_name: str, auth_obj: object):
     """
     List the contents of the local storage database.
 
-    :param db:  Database name tuple.
+    :param db_name:  Storage database name.
     :param auth_obj:  The authentication instance.
     :return:   Nothing
     """
     # Fetch the contents of the storage database # #
-    query = global_vars.db_contents(db)
-    list_call = query_handler(db, query, auth_obj, fetchall=True)
+    query = global_vars.db_contents(db_name)
+    list_call = query_handler(db_name, query, auth_obj, fetchall=True)
 
     # If no data, exit the function #
     if not list_call:
@@ -550,12 +550,12 @@ def list_storage(db: str, auth_obj: object):
     input('\nHit enter to continue ')
 
 
-def key_share(db: str, auth_obj: object, send_email: str, email_pass: str, receivers: str,
+def key_share(db_name: str, auth_obj: object, send_email: str, email_pass: str, receivers: str,
               re_pass: object):
     """
     Share decryption key protected by a password through authentication-based encryption.
 
-    :param db:  Database name tuple.
+    :param db_name:  Keys database name.
     :param auth_obj:  The authentication instance.
     :param send_email:  Key senders email address.
     :param email_pass:  Key senders generated application password.
@@ -564,7 +564,7 @@ def key_share(db: str, auth_obj: object, send_email: str, email_pass: str, recei
     :return:  Nothing
     """
     # Retrieve and decrypt ChaCha20 components #
-    share_key, share_nonce = cha_decrypt(auth_obj, db)
+    share_key, share_nonce = cha_decrypt(auth_obj, db_name)
 
     # Prompt user for password to protect key on transit #
     while True:
@@ -611,7 +611,7 @@ def key_share(db: str, auth_obj: object, send_email: str, email_pass: str, recei
     # Group message data to be iterated over #
     files = ((key_path, nonce_path), (aesccm_path, key_nonce_path), (None, None))
 
-    count = 0 
+    count = 0
     # Iterate of different message destinations #
     for receiver in receivers:
         # Format email #
@@ -637,7 +637,7 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
     :param local_path:  Local path on disk to be uploaded.
     :return:  Prints successful operation or error message.
     """
-    global parent_id
+    global PARENT_ID
     encryptor = None
     folder = None
     prompt3 = None
@@ -699,7 +699,7 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
         # Iterate through rows in storage db extract call #
         for row in extract_call:
             # If regex is successful #
-            if re.search(f'{folder}', row[1]):
+            if re.search(f'{re.escape(folder)}', row[1]):
                 # Decode base64 contents #
                 text = b64decode(row[2])
 
@@ -760,18 +760,18 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
 
     # Grab the rightmost directory of the current path for upload #
     if os.name == 'nt':
-        reg_upPath = re.compile(r'[^\\]{1,30}$')
+        re_upload_path = re.compile(r'[^\\]{1,30}$')
     else:
-        reg_upPath = re.compile(r'[^/]{1,30}$')
+        re_upload_path = re.compile(r'[^/]{1,30}$')
 
-    # Grab only the rightmost directory of path save result in other regex 
+    # Grab only the rightmost directory of path save result in other regex
     # as anchor point for confirming recursive directories while crawling #
-    reg_pathEdge = re.search(reg_upPath, local_path)
+    re_path_edge = re.search(re_upload_path, local_path)
     # Insert path edge regex match into regex to match any path past the edge anchor point #
     if os.name == 'nt':
-        reg_filePath = re.compile(r'(?<={0}\\).+$'.format(str(reg_pathEdge.group(0))))
+        re_file_path = re.compile(rf'(?<={re.escape(str(re_path_edge.group(0)))}\\).+$')
     else:
-        reg_filePath = re.compile(r'(?<={0}/).+$'.format(str(reg_pathEdge.group(0))))
+        re_file_path = re.compile(rf'(?<={re.escape(str(re_path_edge.group(0)))}/).+$')
 
     # List of file extension types #
     ext = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
@@ -786,27 +786,27 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
         print(f'\nUpload path: {folder_path}\n')
 
         # Attempt to grab the rightmost dir in path #
-        upPath_match = re.search(reg_upPath, folder_path)
+        upload_path_match = re.search(re_upload_path, folder_path)
         # Attempt to match path beyond folder specified at end of path #
-        filePath_match = re.search(reg_filePath, folder_path)
+        file_path_match = re.search(re_file_path, folder_path)
 
         # If match for upload path #
-        if upPath_match:
-            upPath = str(upPath_match.group(0))
+        if upload_path_match:
+            upload_path = str(upload_path_match.group(0))
         else:
-            upPath = None
+            upload_path = None
 
         # If match for local files #
-        if filePath_match:
-            filePath = str(filePath_match.group(0))
+        if file_path_match:
+            file_path = str(file_path_match.group(0))
         else:
-            filePath = None
+            file_path = None
 
         # Upload folder to Drive #
         for dirname in folder_names:
             try:
                 # If in root directory #
-                if not filePath:
+                if not file_path:
                     # If OS is Windows #
                     if os.name == 'nt':
                         # Create dir in UploadDock #
@@ -821,11 +821,11 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                     # If OS is Windows #
                     if os.name == 'nt':
                         # Set the path for recursive directory creation #
-                        create_path = Path(f'{global_vars.CWD}\\UploadDock\\{filePath}\\{dirname}')
+                        create_path = Path(f'{global_vars.CWD}\\UploadDock\\{file_path}\\{dirname}')
                     # If OS is Linux #
                     else:
                         # Set the path for recursive directory creation #
-                        create_path = Path(f'{global_vars.CWD}/UploadDock/{filePath}/{dirname}')
+                        create_path = Path(f'{global_vars.CWD}/UploadDock/{file_path}/{dirname}')
 
                     # Create dir path in UploadDock #
                     create_path.mkdir(parents=True, exist_ok=True)
@@ -835,12 +835,12 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                 pass
 
         # If match for local files #
-        if not filePath:
+        if not file_path:
             # Create folder in drive #
             folder_upload(drive, None, folder_names, http)
         else:
             # Create folder in UploadDock #
-            folder_upload(drive, upPath, folder_names, http)
+            folder_upload(drive, upload_path, folder_names, http)
 
         for file in file_names:
             # If OS is Windows #
@@ -866,7 +866,7 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                     crypt = file_data
 
                 # If in root directory #
-                if not filePath:
+                if not file_path:
                     # If OS is Windows #
                     if os.name == 'nt':
                         upload_dock_file = f'{global_vars.DIRS[4]}\\{file}'
@@ -880,10 +880,10 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                 else:
                     # If OS is Windows #
                     if os.name == 'nt':
-                        upload_dock_file = f'{global_vars.DIRS[4]}\\{filePath}\\{file}'
+                        upload_dock_file = f'{global_vars.DIRS[4]}\\{file_path}\\{file}'
                     # If OS is Linux #
                     else:
-                        upload_dock_file = f'{global_vars.DIRS[4]}/{filePath}/{file}'
+                        upload_dock_file = f'{global_vars.DIRS[4]}/{file_path}/{file}'
 
                     # Re-write data in upload dock retaining file structure #
                     file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
@@ -891,7 +891,7 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
             # If file contains extension suggesting metadata #
             if file.endswith(ext):
                 # If in the base dir #
-                if not filePath:
+                if not file_path:
                     # If OS is Windows #
                     if os.name == 'nt':
                         curr_file = f'{folder_path}\\{file}'
@@ -905,10 +905,10 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                 else:
                     # If OS is Windows #
                     if os.name == 'nt':
-                        curr_file = f'{folder_path}\\{filePath}\\{file}'
+                        curr_file = f'{folder_path}\\{file_path}\\{file}'
                     # If OS is Linux #
                     else:
-                        curr_file = f'{folder_path}/{filePath}/{file}'
+                        curr_file = f'{folder_path}/{file_path}/{file}'
 
                     # Strip all the metadata before storing #
                     strip = meta_strip(curr_file)
@@ -918,13 +918,13 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                     continue
 
             # If in root directory #
-            if not filePath:
+            if not file_path:
                 # Upload file to Drive #
                 file_upload(drive, None, global_vars.DIRS[4], file, http, None)
             # If in recursive directory #
             else:
                 # Upload file to Drive #
-                file_upload(drive, upPath, global_vars.DIRS[4], file, http, filePath)
+                file_upload(drive, upload_path, global_vars.DIRS[4], file, http, file_path)
 
             print(f'File: {file}')
 
@@ -948,6 +948,6 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
             [os.rmdir(f'{folder_path}\\{dirname}') if os.name == 'nt'
              else os.rmdir(f'{folder_path}/{dirname}') for dirname in folder_names]
 
-    parent_id = ''
+    PARENT_ID = ''
 
     return print(f'\n\n[SUCCESS] Files from {local_path} have been uploaded')
