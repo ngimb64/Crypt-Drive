@@ -10,7 +10,7 @@ from Modules.utils import print_err
 
 
 class AuthCrypt:
-    """ Class to manage cryptographic components """
+    """ Class to manage cryptographic components. """
     def __init__(self):
         self.aesccm = b''
         self.nonce = b''

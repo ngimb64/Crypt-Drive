@@ -9,15 +9,17 @@
 Made for Windows and Linux, written in Python 3.9
 
 ## Purpose
-Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password
-protected database, while giving the user to share the unlock key & nonce via a temporary password protected
-encryption through emails & a password provided via sms text message. After unlock components are received
-the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
-Crypt Drive also is able to store and rebuild recursive file systems through encrypted databases.
+Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a
+password protected database, while giving the user to share the unlock key & nonce via a temporary 
+password protected encryption through emails & a password provided via sms text message. After 
+unlock components are received the user downloads the shared encrypted data from drive and uses the 
+program to import the key then decrypt it. Crypt Drive also is able to store and rebuild recursive 
+file systems through encrypted databases.
 
-It also features a startup script that check the programs components such as keys and databases. If components are
-missing, the program checks the recycling bin and file system in an attempt to recover it. If the recovery fails,
-new components are created and the data must be re-uploaded with the new key set to be able to decrypt it.
+It also features a startup script that check the programs components such as keys and databases. If 
+components are missing, the program checks the recycling bin and file system in an attempt to 
+recover it. If the recovery fails, new components are created and the data must be re-uploaded with 
+the new key set to be able to decrypt it.
 
 ## Installation
 - Run the setup.py script to build a virtual environment and install all external packages in the created venv.
@@ -75,7 +77,117 @@ new components are created and the data must be re-uploaded with the new key set
 - Enter username to decrypt data or enter to decrypt your own data
 
 ## Function Layout
+-- crypt_drive.py --
+> main_menu &nbsp;-&nbsp; Display command options and receives input on what command to execute.
 
+> start_check &nbsp;-&nbsp; Confirms program components are preset. If missing, component recovery 
+> is attempted. If that fails results in the creation of a fresh set of components.
+
+> password_input &nbsp;-&nbsp; Receive password input from user, verify with Argon2 hashing
+> algorithm or create new password in none exist.
+
+-- auth_crypt.py --
+> AuthCrypt &nbsp;-&nbsp; Class to manage cryptographic components.<br>
+> &emsp; get_plain_secret &nbsp;-&nbsp; Decrypt the encrypted hash secret.<br>
+> &emsp; decrypt_db_key &nbsp;-&nbsp; Decrypt the database key with aesccm authenticated.
+
+-- globals.py -- 
+> initialize &nbsp;-&nbsp; Initializes variables for global access.
+
+> dir_check &nbsp;-&nbsp; Check if directory exists.
+
+> file_check &nbsp;-&nbsp; Check if file exists.
+
+> db_keys &nbsp;-&nbsp; Format MySQL query for Keys database table creation.
+
+> db_storage &nbsp;-&nbsp; Format MySQL query for Storage database table creation.
+
+> db_insert &nbsp;-&nbsp; Format MySQL query to insert keys in the keys database.
+
+> db_store &nbsp;-&nbsp; Format MySQL query to insert data into the storage database.
+
+> db_retrieve &nbsp;-&nbsp; Format MySQL query to retrieve item from database.
+
+> db_contents &nbsp;-&nbsp; Format MYySQL query to retrieve the contents of a database.
+
+> db_delete &nbsp;-&nbsp Format MySQL query to delete an item from a database.
+
+-- menu_functions.py --
+> db_extract &nbsp;-&nbsp; Extracts data from local storage database in encrypted or plain text.
+
+> db_store &nbsp;-&nbsp; Encrypts and inserts data into storage database.
+
+> decryption &nbsp;-&nbsp; Decrypts data located on the file system.
+
+> file_upload &nbsp;-&nbsp; Recursively uploads files to Drive.
+
+> folder_upload &nbsp;-&nbsp; Recursively uploads folders to Drive.
+
+> import_key &nbsp;-&nbsp; Import user's key to the encrypted local key database.
+
+> list_drive &nbsp;-&nbsp; List the contents of Google Drive storage.
+
+> list_storage &nbsp;-&nbsp; List the contents of the local storage database.
+
+> key_share &nbsp;-&nbsp; Share decryption key protected by a password through authentication-based 
+> encryption.
+
+> upload &nbsp;-&nbsp; Manages encrypted recursive upload to Google Drive.
+
+-- utils.py --
+> cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.
+
+> cha_decrypt &nbsp;-&nbsp; Retrieve ChaCha components from Keys db, decoding and decrypting them.
+
+> component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
+> operation.
+
+> create_databases &nbsp;-&nbsp; Creates database components.
+
+> create_dirs &nbsp;-&nbsp; Creates program component directories.
+
+> data_copy &nbsp;-&nbsp; Copies data from source to destination.
+
+> db_check &nbsp;-&nbsp; Checks the upload contents within the keys database and populates 
+> authentication object.
+
+> decrypt_db_data &nbsp;-&nbsp; Decodes and decrypts database base64 cipher data.
+
+> encrypt_db_data &nbsp;-&nbsp; Encrypts and encodes plain data for database.
+
+> error_query &nbsp;-&nbsp; Looks up the errno message to get description.
+
+> fetch_upload_comps &nbsp;-&nbsp; Retrieves upload components from keys database.
+
+> file_handler &nbsp;-&nbsp; Error validated file handler for read and write operations.
+
+> get_database_comp &nbsp;-&nbsp; Unlock and retrieve database cryptography component.
+
+> hd_crawl &nbsp;-&nbsp; Recursive hard drive crawler for recovering missing components.
+
+> logger &nbsp;-&nbsp; Encrypted logging system.
+
+> make_keys &nbsp;-&nbsp; Creates a fresh cryptographic key set, encrypts, and inserts in keys 
+> database.
+
+> meta_strip &nbsp;-&nbsp; Attempts striping metadata from passed in file. If attempt fails, 
+> waiting a second and tries again while adding a second of waiting time per failure. After 3 
+> failed attempts, it returns a False boolean value.
+
+> msg_format &nbsp;-&nbsp; Format email message headers and attach passed in files.
+
+> msg_send &nbsp;-&nbsp; Facilitate the sending of formatted emails.
+
+> print_err &nbsp;-&nbsp; Displays error message via stderr for supplied time interval.
+
+> query_handler &nbsp;-&nbsp; Facilitates MySQL database query execution.
+
+> secure_delete &nbsp;-&nbsp; Overwrite file data with random data number of specified passes and 
+> delete.
+
+> system_cmd &nbsp;-&nbsp; Execute shell-escaped command.
+
+> write_log &nbsp;-&nbsp; Parse new log message to old data and write encrypted result to log.
 
 ## Exit Codes
 -- cryptDrive.py --

@@ -1,4 +1,4 @@
-# pylint: disable=W0106,C0209
+# pylint: disable=W0106
 """ Built-in modules """
 import os
 import re

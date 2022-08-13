@@ -89,7 +89,7 @@ def initialize(path: str):
 
 def dir_check(path: str) -> bool:
     """
-    Check if directory exists #
+    Check if directory exists.
 
     :param path:  The path to the directory to be checked.
     :return:  Boolean True/False whether directory exists/non-exists.
