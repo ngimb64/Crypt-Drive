@@ -14,14 +14,13 @@ from cryptography.fernet import Fernet, InvalidToken
 from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
-from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
 from Modules.auth_crypt import AuthCrypt
 import Modules.globals as global_vars
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
 from Modules.utils import component_handler, db_check, file_handler, hd_crawl, logger, print_err, \
-                          query_handler, secure_delete, system_cmd
+                          query_handler, recycle_check, secure_delete, system_cmd
 
 
 def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
@@ -262,56 +261,14 @@ def start_check(db_name: str) -> bool:
     :param db_name:  The storage database query syntax.
     :return:  True/False boolean toggle on success/failure.
     """
-    misses = []
-
     # If OS is Windows #
     if os.name == 'nt':
-        # Compile parsing regex's #
-        re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
-        re_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
-    # If OS is Linux #
-    else:
-        # Compile parsing regex's #
-        re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^/]{1,30}(?=\.)')
-        re_dir = re.compile(r'(?=[a-zA-Z\d])[^/]{1,30}(?=$)')
-
-    # If OS is Windows where recycling bin exists #
-    if os.name == 'nt':
-        # Iterate through missing components #
-        for item in global_vars.MISSING:
-            # If item is file #
-            if item in global_vars.FILES + global_vars.DBS:
-                # Parse file without extension #
-                re_item = re.search(re_no_ext, item)
-            # If item is folder #
-            else:
-                # Parse folder for winshell recycling bin check #
-                re_item = re.search(re_dir, item)
-
-            # Append item path to program root dir #
-            parse = f'{global_vars.CWD}{re_item.group(0)}'
-            try:
-                # Check recycling bin for item #
-                undelete(parse)
-
-                # If item is a text file #
-                if item in global_vars.FILES:
-                    os.rename(parse, f'{parse}.txt')
-                # If item is a database #
-                elif item in global_vars.DBS:
-                    os.rename(parse, f'{parse}.db')
-
-                print(f'{item} was found in recycling bin')
-
-            # If attempt to recover component from recycling bin fails #
-            except x_not_found_in_recycle_bin:
-                print(f'{item} not found in recycling bin')
-                misses.append(item)
+        # Check the recycling bin for missing items #
+        misses = recycle_check()
 
         # If all items were recovered #
         if not misses:
             return True
-
     # If OS is Linux #
     else:
         misses = global_vars.MISSING
@@ -486,11 +443,10 @@ if __name__ == '__main__':
     cmds = ('cls', 'clear')
     # Database & command tuples #
     dbs = ('crypt_keys', 'crypt_storage')
+    # Current working directory #
+    cwd = os.getcwd()
 
     try:
-        # Current working directory #
-        cwd = os.getcwd()
-
         # Initialize AuthCrypt class #
         auth = AuthCrypt()
 

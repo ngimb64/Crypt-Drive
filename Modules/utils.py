@@ -2,6 +2,7 @@
 import errno
 import os
 import logging
+import re
 import shlex
 import shutil
 import smtplib
@@ -25,6 +26,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
 import Modules.globals as global_vars
 
@@ -875,6 +877,51 @@ def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetc
         os.chdir(global_vars.CWD)
 
     return None
+
+
+def recycle_check():
+    """
+    Checks the recycling bin for missing program components.
+
+    :return:  List of any missing components that were unable to be recovered.
+    """
+    miss_list = []
+    # Compile parsing regex's #
+    re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
+    re_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
+
+    # Iterate through missing components #
+    for item in global_vars.MISSING:
+        # If item is file #
+        if item in global_vars.FILES + global_vars.DBS:
+            # Parse file without extension #
+            re_item = re.search(re_no_ext, item)
+        # If item is folder #
+        else:
+            # Parse folder for winshell recycling bin check #
+            re_item = re.search(re_dir, item)
+
+        # Append item path to program root dir #
+        parse = f'{global_vars.CWD}{re_item.group(0)}'
+        try:
+            # Check recycling bin for item #
+            undelete(parse)
+
+            # If item is a text file #
+            if item in global_vars.FILES:
+                os.rename(parse, f'{parse}.txt')
+            # If item is a database #
+            elif item in global_vars.DBS:
+                os.rename(parse, f'{parse}.db')
+
+            print(f'{item} was found in recycling bin')
+
+        # If attempt to recover component from recycling bin fails #
+        except x_not_found_in_recycle_bin:
+            print(f'{item} not found in recycling bin')
+            miss_list.append(item)
+
+    return miss_list
 
 
 def secure_delete(path: str, passes=5):

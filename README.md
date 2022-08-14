@@ -182,6 +182,8 @@ the new key set to be able to decrypt it.
 
 > query_handler &nbsp;-&nbsp; Facilitates MySQL database query execution.
 
+> recycling_bin &nbsp;-&nbsp; Checks the recycling bin for missing program components.
+
 > secure_delete &nbsp;-&nbsp; Overwrite file data with random data number of specified passes and 
 > delete.
 

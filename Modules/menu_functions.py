@@ -545,7 +545,7 @@ def list_storage(db_name: str, auth_obj: object):
 
     print(f'\nStorage Database Contents\n{(26 * "*")}\n')
     # Print the results of the retrieved database #
-    [print('File name:  {:30s}  Saved path:  {:30s}'.format(row[0], row[1])) for row in list_call]
+    [print(f'File name:  {row[0]:30s}  Saved path:  {row[1]:30s}') for row in list_call]
 
     input('\nHit enter to continue ')
 
