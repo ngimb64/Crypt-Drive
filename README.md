@@ -134,10 +134,19 @@ the new key set to be able to decrypt it.
 
 > upload &nbsp;-&nbsp; Manages encrypted recursive upload to Google Drive.
 
+-- menu_utils.py --
+> extract_input &nbsp;-&nbsp; Gathers users input for database data extraction function.
+
+> extract_parse &nbsp;-&nbsp; Attempts to match regex of recursive path on stored file path in 
+> extracted database row. If match fails, document is extracted to base directory entered in 
+> non-recursive fashion. If stored filepath is formatted as opposing OS, reformat it to current OS.
+
 -- utils.py --
 > cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.
 
 > cha_decrypt &nbsp;-&nbsp; Retrieve ChaCha components from Keys db, decoding and decrypting them.
+
+> CompiledRegex &nbsp;-&nbsp; Class for grouping numerous compiled regex.
 
 > component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
 > operation.
@@ -153,6 +162,9 @@ the new key set to be able to decrypt it.
 
 > decrypt_db_data &nbsp;-&nbsp; Decodes and decrypts database base64 cipher data.
 
+> dir_recover &nbsp;-&nbsp; Iterates through list of passed in dirs and checks to see if current 
+> folder is the same name to static assignment.
+
 > encrypt_db_data &nbsp;-&nbsp; Encrypts and encodes plain data for database.
 
 > error_query &nbsp;-&nbsp; Looks up the errno message to get description.
@@ -161,11 +173,23 @@ the new key set to be able to decrypt it.
 
 > file_handler &nbsp;-&nbsp; Error validated file handler for read and write operations.
 
+> file_recover &nbsp;-&nbsp; Checks to see if current iteration of os walk is the file to be 
+> recovered.
+
 > get_database_comp &nbsp;-&nbsp; Unlock and retrieve database cryptography component.
 
 > hd_crawl &nbsp;-&nbsp; Recursive hard drive crawler for recovering missing components.
 
+> key_recreate &nbsp;-&nbsp; Recreates key or nonce and insert them back into param db_name 
+> database named as store_comp.
+
 > logger &nbsp;-&nbsp; Encrypted logging system.
+
+> login_timeout &nbsp;-&nbsp; Displays loging timeout per second for 60 second interval.
+
+> log_err &nbsp;-&nbsp; Logs error or exception based on passed in handler parameter.
+
+> log_read &nbsp;-&nbsp; Reads input text page by page, displaying 60 lines per page.
 
 > make_keys &nbsp;-&nbsp; Creates a fresh cryptographic key set, encrypts, and inserts in keys 
 > database.
@@ -188,6 +212,9 @@ the new key set to be able to decrypt it.
 > delete.
 
 > system_cmd &nbsp;-&nbsp; Execute shell-escaped command.
+
+> sys_lock &nbsp;-&nbsp; Attempts to lockdown (Windows) or power-off system (Linux), if either fail 
+> the program exits with error code.
 
 > write_log &nbsp;-&nbsp; Parse new log message to old data and write encrypted result to log.
 

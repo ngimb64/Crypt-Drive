@@ -1,4 +1,6 @@
+# pylint: disable=E1101
 """ Built-in modules """
+import ctypes
 import errno
 import os
 import logging
@@ -70,6 +72,22 @@ def cha_decrypt(auth_obj: object, db_name: str) -> tuple:
     return decrypt_key, decrypt_nonce
 
 
+class CompiledRegex:
+    """ Class for grouping numerous compiled regex. """
+    # If OS is Windows #
+    if os.name == 'nt':
+        re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
+    # If OS is Linux #
+    else:
+        re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
+
+    re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
+    re_user = re.compile(r'^[a-zA-Z\d._]{1,30}')
+    re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
+    re_phone = re.compile(r'^\d{10}')
+    re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
+
+
 def component_handler(db_tuple: tuple, user_input: str, auth_obj: object) -> object:
     """
     Creates various dir, db, and key components required for program operation.
@@ -84,7 +102,7 @@ def component_handler(db_tuple: tuple, user_input: str, auth_obj: object) -> obj
     # Create database components #
     create_databases(db_tuple)
     # Create fresh cryptographic key set #
-    return make_keys(db_tuple[0], user_input, auth_obj)
+    return make_keys(db_tuple[0], user_input.encode(), auth_obj)
 
 
 def create_databases(dbs: tuple):
@@ -103,7 +121,7 @@ def create_databases(dbs: tuple):
         else:
             continue
 
-        query_handler(db_name, query, None, create=True)
+        query_handler(db_name, query, None, operation='create')
 
 
 def create_dirs():
@@ -177,11 +195,11 @@ def db_check(db_name: str, secret: bytes, auth_obj: object) -> object:
 
     # Retrieve upload key from database #
     query = global_vars.db_retrieve(db_name, 'upload_key')
-    upload_call = query_handler(db_name, query, None, fetchone=True)
+    upload_call = query_handler(db_name, query, None, operation='fetchone')
 
     # Retrieve nonce from database #
     query = global_vars.db_retrieve(db_name, 'upload_nonce')
-    nonce_call = query_handler(db_name, query, None, fetchone=True)
+    nonce_call = query_handler(db_name, query, None, operation='fetchone')
 
     # If the upload key call fails #
     if not upload_call or not nonce_call:
@@ -191,25 +209,14 @@ def db_check(db_name: str, secret: bytes, auth_obj: object) -> object:
 
         if not upload_call:
             print('Creating new upload key ..')
-            # Create new encrypted upload key #
-            crypt_key = Fernet(db_key).encrypt(os.urandom(32))
-            # Base64 encode encrypted upload key for db storage #
-            upload_key = b64encode(crypt_key)
-
-            # Send upload key to key database #
-            query = global_vars.db_insert(db_name, 'upload_key', upload_key.decode('utf-8'))
-            query_handler(db_name, query, None)
+            # Recreate 32 byte upload key and store to keys database #
+            key_recreate(db_key, 32, db_name, 'upload_key')
 
         if not nonce_call:
             print('Creating new upload nonce')
-            # Create new encrypted upload nonce #
-            crypt_nonce = Fernet(db_key).encrypt(os.urandom(16))
-            # Base64 encoded encrypted upload nonce for storage #
-            nonce = b64encode(crypt_nonce)
+            # Recreate 16 byte upload nonce and store to keys database #
+            key_recreate(db_key, 16, db_name, 'upload_nonce')
 
-            # Send nonce to keys database #
-            query = global_vars.db_insert(db_name, 'upload_nonce', nonce.decode('utf-8'))
-            query_handler(db_name, query, None)
     else:
         # Confirm retrieved upload key/nonce properly decode & decrypt #
         _ = decrypt_db_data(db_key, upload_call[1])
@@ -241,6 +248,66 @@ def decrypt_db_data(decrypted_key: bytes, crypt_data: bytes) -> bytes:
 
     # Return decrypted data #
     return plain_data
+
+
+def dir_recover(items: list, folder: str, curr_folder: str) -> list:
+    """
+    Iterates through list of passed in dirs and checks to see if current folder is the same name \
+    to static assignment.
+
+    :param items:  List of items attempting to be recovered.
+    :param folder:  The folder of the current iteration of os walk procedure.
+    :param curr_folder:  The path to the current iteration folder to be recovered.
+    :return:  Updated items list of missing components.
+    """
+    # Iterate through passed in missing list #
+    for item in items:
+        # If the folder and item are CryptDbs #
+        if folder == item == 'CryptDbs':
+            # Copy and delete source folder #
+            data_copy(curr_folder, global_vars.DIRS[0])
+            print(f'Folder: {item} recovered')
+            # Remove recovered item from missing list #
+            items.remove(item)
+            break
+
+        # If the folder and item are CryptImport #
+        if folder == item == 'CryptImport':
+            # Copy and delete source folder #
+            data_copy(curr_folder, global_vars.DIRS[1])
+            print(f'Folder: {item} recovered')
+            # Remove recovered item from missing list #
+            items.remove(item)
+            break
+
+        # If the folder and item are CryptKeys #
+        if folder == item == 'CryptKeys':
+            # Copy and delete source folder #
+            data_copy(curr_folder, global_vars.DIRS[2])
+            print(f'Folder: {item} recovered')
+            # Remove recovered item from missing list #
+            items.remove(item)
+            break
+
+        # If the folder and item are DecryptDock #
+        if folder == item == 'DecryptDock':
+            # Copy and delete source folder #
+            data_copy(curr_folder, global_vars.DIRS[3])
+            print(f'Folder: {item} recovered')
+            # Remove recovered item from missing list #
+            items.remove(item)
+            break
+
+        # If the folder and item are UploadDock #
+        if folder == item == 'UploadDock':
+            # Copy and delete source folder #
+            data_copy(curr_folder, global_vars.DIRS[4])
+            print(f'Folder: {item} recovered')
+            # Remove recovered item from missing list #
+            items.remove(item)
+            break
+
+    return items
 
 
 def encrypt_db_data(decrypted_key: bytes, plain_data: bytes) -> str:
@@ -303,11 +370,11 @@ def fetch_upload_comps(db_name: str, key_name: str, nonce_name: str, auth_obj: o
     """
     # Retrieve decrypt key from database #
     query = global_vars.db_retrieve(db_name, key_name)
-    decrypt_query = query_handler(db_name, query, auth_obj, fetchone=True)
+    decrypt_query = query_handler(db_name, query, auth_obj, operation='fetchone')
 
     # Retrieve nonce from database #
     query = global_vars.db_retrieve(db_name, nonce_name)
-    nonce_query = query_handler(db_name, query, auth_obj, fetchone=True)
+    nonce_query = query_handler(db_name, query, auth_obj, operation='fetchone')
 
     # Return fetched query results #
     return decrypt_query, nonce_query
@@ -326,6 +393,11 @@ def file_handler(filename: str, mode: str, auth_obj: object, operation=None, dat
     """
     count, sleep_time = 0, 1
 
+    if mode in ('rb', 'wb'):
+        encode = None
+    else:
+        encode = 'utf-8'
+
     while True:
         # If loop is past first iteration #
         if count > 0:
@@ -333,7 +405,7 @@ def file_handler(filename: str, mode: str, auth_obj: object, operation=None, dat
             sleep_time += 1
 
         try:
-            with open(filename, mode, encoding='utf-8') as file:
+            with open(filename, mode, encoding=encode) as file:
                 # If read operation was specified #
                 if operation == 'read':
                     return file.read()
@@ -370,6 +442,53 @@ def file_handler(filename: str, mode: str, auth_obj: object, operation=None, dat
             count += 1
 
     return None
+
+
+def file_recover(file: str, curr_file: str, items: list) -> list:
+    """
+    Checks to see if current iteration of os walk is the file to be recovered.
+
+    :param file:  The name of the file attempted to be recovered.
+    :param curr_file:  The path to the current file attempted to be recovered.
+    :param items:  The list of missing components.
+    :return:  Updated items list of missing components.
+    """
+    # Iterate through list of missing components #
+    for item in items:
+        # If file is text #
+        if file.endswith('txt'):
+            # If file is one of the key components #
+            if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
+                # If OS is Windows #
+                if os.name == 'nt':
+                    dest_file = f'{global_vars.DIRS[2]}\\{file}'
+                # If OS is Linux #
+                else:
+                    dest_file = f'{global_vars.DIRS[2]}/{file}'
+
+                # Copy and delete source file #
+                data_copy(curr_file, dest_file)
+                print(f'File: {item}.txt recovered')
+                # Remove recovered item from missing list #
+                items.remove(item)
+
+        # If file is database #
+        else:
+            if file in ('crypt_keys.db', 'crypt_storage.db'):
+                # If OS is Windows #
+                if os.name == 'nt':
+                    dest_file = f'{global_vars.DIRS[0]}\\{file}'
+                # If OS is Linux #
+                else:
+                    dest_file = f'{global_vars.DIRS[0]}/{file}'
+
+                # Copy and delete source file #
+                data_copy(curr_file, dest_file)
+                print(f'File: {item}.db recovered')
+                # Remove recovered item from missing list #
+                items.remove(item)
+
+    return items
 
 
 def get_database_comp(auth_obj: object) -> bytes:
@@ -410,7 +529,7 @@ def hd_crawl(items: list) -> list:
             # Iterate through folders in current dir #
             for folder in dir_names:
                 # If there are no more folders in the missing list #
-                if items[0].endswith('.db') and items[0].endswith('.txt'):
+                if items[0].endswith('.db') and items[0].endswith('.txt') or not items:
                     break
 
                 # If OS is Windows #
@@ -420,104 +539,44 @@ def hd_crawl(items: list) -> list:
                 else:
                     curr_folder = f'{dir_path}/{folder}'
 
-                # Iterate through passed in missing list #
-                for item in items:
-                    # If the folder and item are CryptDbs #
-                    if folder == item == 'CryptDbs':
-                        # Copy and delete source folder #
-                        data_copy(curr_folder, global_vars.DIRS[0])
-                        print(f'Folder: {item} recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
-
-                    # If the folder and item are CryptImport #
-                    elif folder == item == 'CryptImport':
-                        # Copy and delete source folder #
-                        data_copy(curr_folder, global_vars.DIRS[1])
-                        print(f'Folder: {item} recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
-
-                    # If the folder and item are CryptKeys #
-                    elif folder == item == 'CryptKeys':
-                        # Copy and delete source folder #
-                        data_copy(curr_folder, global_vars.DIRS[2])
-                        print(f'Folder: {item} recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
-
-                    # If the folder and item are DecryptDock #
-                    elif folder == item == 'DecryptDock':
-                        # Copy and delete source folder #
-                        data_copy(curr_folder, global_vars.DIRS[3])
-                        print(f'Folder: {item} recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
-
-                    # If the folder and item are UploadDock #
-                    elif folder == item == 'UploadDock':
-                        # Copy and delete source folder #
-                        data_copy(curr_folder, global_vars.DIRS[4])
-                        print(f'Folder: {item} recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
+                # Iterate through list of missing attempts
+                # and attempt to match dir to recover #
+                items = dir_recover(items, folder, curr_folder)
 
         # Iterate through files in current dir #
         for file in file_names:
-            # Iterate through passed in failed items #
-            for item in items:
-                # If item is not a file #
-                if not item.endswith('.dbs') or not item.endswith('.txt'):
-                    continue
+            # If OS is Windows #
+            if os.name == 'nt':
+                curr_file = f'{dir_path}\\{file}'
+            # If OS is Linux #
+            else:
+                curr_file = f'{dir_path}/{file}'
 
-                # If OS is Windows #
-                if os.name == 'nt':
-                    curr_file = f'{dir_path}\\{file}'
-                # If OS is Linux #
-                else:
-                    curr_file = f'{dir_path}/{file}'
-
-                # If file is text #
-                if file.endswith('txt') and file == item:
-                    # If file is one of the key components #
-                    if file in ('aesccm.txt', 'nonce.txt', 'db_crypt.txt', 'secret_key.txt'):
-                        # If OS is Windows #
-                        if os.name == 'nt':
-                            dest_file = f'{global_vars.DIRS[2]}\\{file}'
-                        # If OS is Linux #
-                        else:
-                            dest_file = f'{global_vars.DIRS[2]}/{file}'
-
-                        # Copy and delete source file #
-                        data_copy(curr_file, dest_file)
-                        print(f'File: {item}.txt recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
-
-                # If file is database #
-                elif file.endswith('.db') and file == item:
-                    if file in ('crypt_keys.db', 'crypt_storage.db'):
-                        # If OS is Windows #
-                        if os.name == 'nt':
-                            dest_file = f'{global_vars.DIRS[0]}\\{file}'
-                        # If OS is Linux #
-                        else:
-                            dest_file = f'{global_vars.DIRS[0]}/{file}'
-
-                        # Copy and delete source file #
-                        data_copy(curr_file, dest_file)
-                        print(f'File: {item}.db recovered')
-                        # Remove recovered item from missing list #
-                        items.remove(item)
-                        break
+            # Iterate through list of missing attempts
+            # and attempt to match file to recover #
+            items = file_recover(file, curr_file, items)
 
     return items
+
+
+def key_recreate(db_key: bytes, key_size: int, db_name: str, store_comp: str):
+    """
+    Recreates key or nonce and insert them back into param db_name database named as store_comp.
+
+    :param db_key:  The Fernet key to encrypt recreated keys before storing them.
+    :param key_size:  The size of the key/nonce size to be recreated and stored.
+    :param db_name:  The database name where the keys will be stored.
+    :param store_comp:  The name of key that will be stored in the database.
+    :return:
+    """
+    # Create new encrypted upload key #
+    crypt_comp = Fernet(db_key).encrypt(os.urandom(key_size))
+    # Base64 encode encrypted upload key for db storage #
+    encoded_comp = b64encode(crypt_comp)
+
+    # Send upload key to key database #
+    query = global_vars.db_insert(db_name, store_comp, encoded_comp.decode('utf-8'))
+    query_handler(db_name, query, None)
 
 
 def logger(msg: str, auth_obj: object, operation=None, handler=None):
@@ -558,53 +617,85 @@ def logger(msg: str, auth_obj: object, operation=None, handler=None):
 
     # If writing to the log #
     if operation == 'write':
-        # If writing error #
-        if handler == 'error':
-            logging.error('%s\n\n', msg)
-        # If writing exception #
-        elif handler == 'exception':
-            logging.exception('%s\n\n', msg)
-        else:
-            logging.error('Error message write: \"%s\" provided '
-                          'without proper handler parameter\n\n', msg)
-
-        # If the file already has text #
-        if text:
-            write_log(log_name, db_key)
-        else:
-            write_log(log_name, db_key)
+        # Write error message to string object log stream #
+        log_err(handler, msg)
+        # Write error string object log stream as encrypted to file #
+        write_log(log_name, db_key)
 
     # If reading the log #
     elif operation == 'read':
         # If log file is has data, read it #
         if log_size > 0:
-            count = 0
-
-            # Print log page by page #
-            for line in text.split('\n'):
-                if count == 60:
-                    input('Hit enter to continue ')
-                    count = 0
-
-                print(line)
-                count += 1
-
-            input('Hit enter to continue ')
+            # Read the contents of log page by page #
+            log_read(text)
         else:
             print_err('No data to read in log file', 2)
 
     # If operation not specified #
     else:
+        # Log error to string object log stream #
         logging.error('\n\nNo logging operation specified\n')
-
-        # If the file already has text #
-        if text:
-            write_log(log_name, db_key)
-        else:
-            write_log(log_name, db_key)
+        # Write error string object log stream as encrypted to file #
+        write_log(log_name, db_key)
 
 
-def make_keys(db_names: str, password: str, auth_obj: object) -> object:
+def login_timeout():
+    """
+    Displays loging timeout per second for 60 second interval.
+
+    :return:  Nothing
+    """
+    print('\n* [WARNING] Too many login attempts .. 60 second timeout *')
+    for sec in range(1, 61):
+        msg = f'{"!" * sec} sec'
+        print(msg, end='\r')
+        time.sleep(1)
+
+
+def log_err(handler: str, msg: str):
+    """
+    Logs error or exception based on passed in handler parameter.
+
+    :param handler:  Specifies which logging operation to perform.
+    :param msg:  The error message to be logged to string object stream.
+    :return:  Nothing
+    """
+    # If writing error #
+    if handler == 'error':
+        # Log error to string object log stream #
+        logging.error('%s\n\n', msg)
+    # If writing exception #
+    elif handler == 'exception':
+        # Log exception to string object log stream #
+        logging.exception('%s\n\n', msg)
+    else:
+        # Log error to string object log stream #
+        logging.error('Error message write: \"%s\" provided '
+                      'without proper handler parameter\n\n', msg)
+
+
+def log_read(text: str):
+    """
+    Reads input text page by page, displaying 60 lines per page.
+
+    :param text:  The input text to be read page by page.
+    :return:  Nothing
+    """
+    count = 0
+
+    # Print log page by page #
+    for line in text.split('\n'):
+        if count == 60:
+            input('Hit enter to continue ')
+            count = 0
+
+        print(line)
+        count += 1
+
+    input('Hit enter to continue ')
+
+
+def make_keys(db_names: str, password: bytes, auth_obj: object) -> object:
     """
     Creates a fresh cryptographic key set, encrypts, and inserts in keys database.
 
@@ -613,12 +704,10 @@ def make_keys(db_names: str, password: str, auth_obj: object) -> object:
     :param auth_obj:  The authentication instance.
     :return:  The populated authentication instance.
     """
-    bytes_pass = password.encode()
-
     # Initialize argon2 hasher #
     pass_algo = PasswordHasher()
     # Hash the input password #
-    input_hash = pass_algo.hash(bytes_pass)
+    input_hash = pass_algo.hash(password)
 
     # Fernet Symmetric HMAC key for dbs and secret #
     db_key = Fernet.generate_key()
@@ -641,7 +730,7 @@ def make_keys(db_names: str, password: str, auth_obj: object) -> object:
     nonce = os.urandom(13)
 
     # Encrypt the db fernet key with AESCCM password key & write to file #
-    crypt_db = aesccm.encrypt(nonce, db_key, bytes_pass)
+    crypt_db = aesccm.encrypt(nonce, db_key, password)
 
     # Add encrypted password hash to key ring #
     keyring.set_password('CryptDrive', 'CryptUser', crypt_hash.decode('utf-8'))
@@ -757,7 +846,7 @@ def msg_format(send_email: str, receiver: str, body: str, files: str) -> MIMEMul
     return msg
 
 
-def msg_send(send_email: str, receiver: str, password: str, msg: object, auth_obj: object):
+def msg_send(send_email: str, receiver: str, password: str, msg: MIMEMultipart, auth_obj: object):
     """
     Facilitate the sending of formatted emails.
 
@@ -800,17 +889,14 @@ def print_err(msg: str, seconds):
         time.sleep(seconds)
 
 
-def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetchone=False,
-                  fetchall=False):
+def query_handler(db_name: str, query: str, auth_obj: object, operation=None):
     """
     Facilitates MySQL database query execution.
 
     :param db_name:  Database in which the query will be executed.
     :param query:  The query that will be executed upon the database.
     :param auth_obj:  The authentication instance.
-    :param create:  Create operation boolean toggle.
-    :param fetchone:  Fetchone operation boolean toggle.
-    :param fetchall:  Fetchall operation boolean toggle.
+    :param operation:  Performs various operations if specified (create, fetchone, or fetchall).
     :return:  Nothing
     """
     # Change directory #
@@ -836,14 +922,14 @@ def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetc
 
             # If creating database close connection
             # and moves back a directory #
-            if create:
+            if operation == 'create':
                 conn.close()
                 os.chdir(global_vars.CWD)
                 return None
 
             # Fetches entry from database then closes
             # connection and moves back a directory #
-            elif fetchone:
+            if operation == 'fetchone':
                 row = db_call.fetchone()
                 conn.close()
                 os.chdir(global_vars.CWD)
@@ -851,7 +937,7 @@ def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetc
 
             # Fetches all database entries then closes
             # connection and moves back a directory #
-            elif fetchall:
+            if operation == 'fetchall':
                 rows = db_call.fetchall()
                 conn.close()
                 os.chdir(global_vars.CWD)
@@ -879,7 +965,7 @@ def query_handler(db_name: str, query: str, auth_obj: object, create=False, fetc
     return None
 
 
-def recycle_check():
+def recycle_check() -> list:
     """
     Checks the recycling bin for missing program components.
 
@@ -976,6 +1062,29 @@ def system_cmd(cmd: str, stdout, stderr, exec_time: int):
             command.communicate()
 
 
+def sys_lock():
+    """
+    Attempts to lockdown (Windows) or power-off system (Linux), if either fail the program exits \
+    with error code.
+
+    :return:  Nothing
+    """
+    # Code can be added to notify administrator or
+    # raise an alert to remote system #
+
+    # If OS is Windows #
+    if os.name == 'nt':
+        # Lock the system #
+        ctypes.wind11.user32.LockWorkStation()
+    # If OS is Linux #
+    else:
+        # Turn off the system #
+        system_cmd('poweroff -p', None, None, 2)
+
+    # Exit when unlocked or poweroff fails #
+    sys.exit(2)
+
+
 def write_log(log_name: str, db_key: bytes):
     """
     Parse new log message to old data and write encrypted result to log.
@@ -993,6 +1102,6 @@ def write_log(log_name: str, db_key: bytes):
             crypt = encrypt_db_data(db_key, log_msg.encode())
             file.write(crypt)
 
-    except (IOError, FileNotFoundError, Exception) as err:
+    except (IOError, OSError) as err:
         print_err(f'Error occurred writing {log_msg} to Logger:\n{err}', 2)
         sys.exit(9)

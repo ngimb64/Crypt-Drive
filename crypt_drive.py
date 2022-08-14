@@ -1,5 +1,4 @@
 """ Built-in modules """
-import ctypes
 import logging
 import os
 import re
@@ -19,41 +18,31 @@ from Modules.auth_crypt import AuthCrypt
 import Modules.globals as global_vars
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
-from Modules.utils import component_handler, db_check, file_handler, hd_crawl, logger, print_err, \
-                          query_handler, recycle_check, secure_delete, system_cmd
+from Modules.utils import CompiledRegex, component_handler, db_check, hd_crawl, logger, \
+                          login_timeout, print_err, query_handler, recycle_check, secure_delete, \
+                          system_cmd, sys_lock
 
 
-def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
+def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
     """
     Display command options and receives input on what command to execute.
 
     :param db_tuple:  The database name tuple.
     :param auth_obj:  The authentication instance.
-    :param syntax_tuple:  The clear display command tuple.
+    :param clear_syntax:  The command syntax to clear display.
     :return:  Nothing
     """
-    # If OS is Windows #
-    if os.name == 'nt':
-        re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
-        cmd = syntax_tuple[0]
-    # If OS is Linux #
-    else:
-        re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
-        cmd = syntax_tuple[1]
-
-    re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
-    re_user = re.compile(r'^[a-zA-Z\d._]{1,30}')
-    re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
-    re_phone = re.compile(r'^\d{10}')
-    re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
+    # Compile various regexes as grouped instance #
+    regex_obj = CompiledRegex()
+    # Format program banner #
     custom_fig = Figlet(font='roman', width=100)
 
     # Clears screen per loop for clean display #
     while True:
-        system_cmd(cmd, None, None, 2)
+        system_cmd(clear_syntax, None, None, 2)
         print(custom_fig.renderText('Crypt Drive'))
         print('''
-    @===============@
+    @==============@
     |   Commands   |
     #=========================#-----------\\
     |   upload  =>  upload to drive        \\
@@ -72,64 +61,15 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
 
         # Upload encrypted data #
         if prompt == 'upload':
-            while True:
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path for upload,'
-                                   ' \"Storage\" for contents from storage database or enter for '
-                                   'UploadDock:\n')
-                # If regex fails and Storage and enter was not input #
-                if not re.search(re_path, local_path) and local_path != 'Storage' \
-                and local_path != '':
-                    print_err('Improper format .. try again', 2)
-                    continue
-
-                break
-
-            # If user hit enter #
-            if local_path == '':
-                local_path = global_vars.DIRS[4]
-            # If user entered Storage #
-            elif local_path == 'Storage':
-                local_path = None
-
-            upload(db_tuple, auth_obj, local_path)
-            time.sleep(2)
+            upload(db_tuple, auth_obj, regex_obj.re_path)
 
         # Store data in storage database #
         elif prompt == 'store':
-            while True:
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path'
-                                   ' for database storage or enter for Import:\n')
-                # If regex fails and enter was not input #
-                if not re.search(re_path, local_path) and local_path != '':
-                    print_err('Improper format .. try again', 2)
-                    continue
-
-                break
-
-            if local_path == '':
-                local_path = global_vars.DIRS[3]
-
-            db_store(db_tuple, auth_obj, local_path)
+            db_store(db_tuple, auth_obj, regex_obj.re_path)
 
         # Extract data from storage db #
         elif prompt == 'extract':
-            while True:
-                directory = input('Enter folder name to be recursively exported from the '
-                                  'database: ')
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
-                                   ' hit enter export in Documents:\n')
-                # If path regex fails and enter was not input or folder regex fails #
-                if not re.search(re_path, local_path) and local_path != '' or \
-                not re.search(re_dir, directory):
-                    print_err('Improper format .. try again', 2)
-                    continue
-
-                break
-
-            if local_path == '':
-                local_path = None
-
-            db_extract(db_tuple, auth_obj, directory, local_path)
+            db_extract(db_tuple, auth_obj, regex_obj.re_path, regex_obj.re_dir)
 
         # List cloud contents #
         elif prompt == 'ldrive':
@@ -141,101 +81,16 @@ def main_menu(db_tuple: tuple, auth_obj, syntax_tuple: tuple):
 
         # Import public key #
         elif prompt == 'import':
-            while True:
-                username = input('Enter username for key to be imported: ')
-                import_pass = input('Enter user decryption password in text message: ')
-                # If username or password regex fail #
-                if not re.search(re_user, username) or not re.search(re_pass, import_pass):
-                    print_err('Improper format .. try again', 2)
-                    continue
-
-                break
-
-            import_key(db_tuple[0], auth_obj, username, import_pass)
+            import_key(db_tuple[0], auth_obj, regex_obj.re_user, regex_obj.re_pass)
 
         # Decrypt data in DecryptDock
         elif prompt == 'decrypt':
-            while True:
-                username = input('Enter username of data to decrypt or hit enter for your own '
-                                 'data: ')
-                local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
-                                   ' enter for DecryptDock\n')
-                # If username regex fails and enter was not entered
-                # or path regex fails and enter was not entered #
-                if not re.search(re_user, username) and username != '' or \
-                not re.search(re_path, local_path) and local_path != '':
-                    print_err('Improper format .. try again', 2)
-                    continue
-
-                break
-
-            if local_path == '':
-                local_path = global_vars.DIRS[1]
-
-            decryption(db_tuple[0], username, auth_obj, local_path)
+            decryption(db_tuple[0], auth_obj, regex_obj.re_user, regex_obj.re_path)
 
         # Share private key with user #
         elif prompt == 'share':
-            provider = None
-
-            # If OS is Windows #
-            if os.name == 'nt':
-                app_secret = f'{global_vars.CWD}\\AppSecret.txt'
-            # If OS is Linux #
-            else:
-                app_secret = f'{global_vars.CWD}/AppSecret.txt'
-
-            # If AppSecret for Gmail login is missing #
-            if not global_vars.file_check(app_secret):
-                return print_err('Missing application password (AppSecret.txt) to login Gmail API, '
-                                'generate password on Google account and save in AppSecret.txt in'
-                                ' main dir', 2)
-
-            email_pass = file_handler(app_secret, 'r', auth_obj, 'read')
-
-            while True:
-                send_email = input('Enter your gmail email address: ')
-                recv_email = input('Enter receivers email address for encrypted decryption key: ')
-                recv_email2 = input('Enter receivers encrypted email address(Protonmail, Tutanota,'
-                                    ' Etc ..) for auth key: ')
-                recv_phone = input('Enter receivers phone number (no hyphens): ')
-                carrier = input('Select your phone provider (verizon, sprint, at&t, t-mobile, '
-                                'virgin, boost, us-cellular): ')
-
-                # If any of the input regex validations fail #
-                if not re.search(re_email, send_email) or not re.search(re_email, recv_email) \
-                or not re.search(re_email, recv_email2) or not re.search(re_phone, recv_phone):
-                    print_err('One of the inputs provided were improper .. try again', 2)
-                    continue
-
-                # If improper carrier was selected #
-                if carrier not in ('verizon', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost',
-                                   'us-cellular'):
-                    print_err('Improper provider selection made', 2)
-                    continue
-
-                if carrier == 'verizon':
-                    provider = 'vtext.com'
-                elif carrier == 'sprint':
-                    provider = 'messaging.sprintpcs.com'
-                elif carrier == 'at&t':
-                    provider = 'txt.att.net'
-                elif carrier == 't-mobile':
-                    provider = 'tmomail.com'
-                elif carrier == 'virgin':
-                    provider = 'vmobl.com'
-                elif carrier == 'boost':
-                    provider = 'sms.myboostmobile.com'
-                elif carrier == 'us-cellular':
-                    provider = 'email.uscc.net'
-                else:
-                    print_err('Unknown exception occurred selecting phone provider', 2)
-                    continue
-
-                break
-
-            receivers = (recv_email, recv_email2, f'{recv_phone}@{provider}')
-            key_share(db_tuple[0], auth_obj, send_email, email_pass, receivers, re_pass)
+            key_share(db_tuple[0], auth_obj, regex_obj.re_email,
+                      regex_obj.re_pass, regex_obj.re_phone)
 
         # Exit the program #
         elif prompt == 'exit':
@@ -291,7 +146,7 @@ def start_check(db_name: str) -> bool:
                 else:
                     # Create storage database #
                     query = global_vars.db_storage(db_name)
-                    query_handler(db_name, query, None, create=True)
+                    query_handler(db_name, query, None, operation='create')
             # If component is in the essential key-set #
             else:
                 # Delete component files #
@@ -304,12 +159,13 @@ def start_check(db_name: str) -> bool:
     return True
 
 
-def password_input(syntax_tuple: tuple, auth_obj) -> object:
+def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
     """
     Receive password input from user, verify with Argon2 hashing algorithm or create new password \
     in none exist.
 
-    :param syntax_tuple:  Command syntax tuple to clear display.
+    :param clear_syntax:  Command syntax tuple to clear display.
+    :param db_tuple:  Tuple containing database name syntax.
     :param auth_obj:  The authentication instance.
     :return:  Populated authentication instance.
     """
@@ -320,40 +176,19 @@ def password_input(syntax_tuple: tuple, auth_obj) -> object:
     # Initialize password hashing algorithm #
     pass_algo = PasswordHasher()
 
-    # If OS is Windows #
-    if os.name == 'nt':
-        cmd = syntax_tuple[0]
-    # If OS is Linux #
-    else:
-        cmd = syntax_tuple[1]
-
     while True:
         # Clear display #
-        system_cmd(cmd, None, None, 2)
+        system_cmd(clear_syntax, None, None, 2)
 
         # If user maxed attempts (3 sets of 3 failed password attempts) #
         if count == 12:
-            # Code can be added to notify administrator or
-            # raise an alert to remote system #
-
-            # If OS is Windows #
-            if os.name == 'nt':
-                # Lock the system #
-                ctypes.wind11.user32.LockWorkStation()
-            # If OS is Linux #
-            else:
-                # Turn off the system #
-                system_cmd('poweroff -p', None, None, 2)
-                # If fails exit the system #
-                sys.exit(2)
+            # Attempt to lock system down and exit #:
+            sys_lock()
 
         # After three password failures #
         elif count in (3, 6, 9):
-            print('\n* [WARNING] Too many login attempts .. 60 second timeout *')
-            for sec in range(1, 61):
-                msg = f'{"!" * sec} sec'
-                print(msg, end='\r')
-                time.sleep(1)
+            # Display login timeout for interval of 60 seconds #
+            login_timeout()
 
         # Prompt user for input #
         prompt = getpass('\n\nEnter your unlock password or password for creating keys: ')
@@ -388,7 +223,7 @@ def password_input(syntax_tuple: tuple, auth_obj) -> object:
                 continue
 
             # Create dirs, dbs, and keys #
-            auth_obj = component_handler(dbs, prompt, auth_obj)
+            auth_obj = component_handler(db_tuple, prompt, auth_obj)
 
             return auth_obj
 
@@ -399,20 +234,20 @@ def password_input(syntax_tuple: tuple, auth_obj) -> object:
                   f'{"*" * 109}\n')
 
             # Attempt to recover missing components #
-            ret = start_check(dbs[1])
+            ret = start_check(db_tuple[1])
             # If unable to recover components essential to the key-set #
             if not ret:
                 print_err('Unable to recover all missing components .. recreating key-set', 2.5)
 
                 # Create dirs, dbs, and keys #
-                auth_obj = component_handler(dbs, prompt, auth_obj)
+                auth_obj = component_handler(db_tuple, prompt, auth_obj)
 
                 return auth_obj
 
             global_vars.HAS_KEYS = True
 
         # Check for database contents and set auth object #
-        auth_obj = db_check(dbs[0], prompt.encode(), auth_obj)
+        auth_obj = db_check(db_tuple[0], prompt.encode(), auth_obj)
         # Decrypt the password #
         check_pass = auth_obj.get_plain_secret()
 
@@ -446,8 +281,15 @@ if __name__ == '__main__':
     # Current working directory #
     cwd = os.getcwd()
 
+    # If OS is Windows #
+    if os.name == 'nt':
+        CMD = cmds[0]
+    # If OS is Linux #
+    else:
+        CMD = cmds[1]
+
     try:
-        # Initialize AuthCrypt class #
+        # Initialize AuthCrypt instance #
         auth = AuthCrypt()
 
         # Initialize global variables and
@@ -455,7 +297,7 @@ if __name__ == '__main__':
         global_vars.initialize(cwd)
 
         # User password authentication login #
-        auth = password_input(cmds, auth)
+        auth = password_input(CMD, dbs, auth)
 
         # Initialize logging facilities #
         logging.basicConfig(level=logging.ERROR, stream=global_vars.LOG_STREAM,
@@ -474,7 +316,7 @@ if __name__ == '__main__':
     # Main menu exception handled loop #
     while True:
         try:
-            main_menu(dbs, auth, cmds)
+            main_menu(dbs, auth, CMD)
 
         # If keyboard interrupt is detected #
         except KeyboardInterrupt:

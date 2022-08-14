@@ -13,6 +13,7 @@ from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
 import Modules.globals as global_vars
+from Modules.menu_utils import extract_input, extract_parse
 from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
                           fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
                           msg_format, msg_send, print_err, query_handler, secure_delete
@@ -22,42 +23,30 @@ from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_dat
 PARENT_ID = ''
 
 
-def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
+def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
     """
     Extracts data from local storage database in encrypted or plain text.
 
     :param dbs:  The database name tuple.
     :param auth_obj:  The authentication instance.
-    :param folder:  Folder name to be inserted into recursive regex.
-    :param path:  Path where the database data will be extracted to.
+    :param re_path:  Compiled regex to match input path.
+    :param re_dir:  Compiled regex to match input directory to recursively extract from storage db.
     :return:  Prints successful operation or error message.
     """
     decryptor = None
-
-    # Prompt user if data should be exported in encrypted or plain text #
-    while True:
-        prompt = input('\nShould the data be extracted in encrypted or plain text'
-                       ' (encrypted or plain)? ')
-        prompt2 = input('\nShould the data extracted be deleted from the data base after'
-                        ' operation (y or n)? ')
-
-        # If improper input is provided #
-        if prompt not in ('encrypted', 'plain') or prompt2 not in ('y', 'n'):
-            print_err('Improper input provided .. try again selecting inputs provided', 2)
-            continue
-
-        break
+    # Prompt user for needed inputs to perform extraction #
+    folder, path, is_crypt, is_deleted = extract_input(re_dir, re_path)
 
     # Confirm the storage database has data to extract #
     query = global_vars.db_contents(dbs[1])
-    extract_call = query_handler(dbs[1], query, auth_obj, fetchall=True)
+    extract_call = query_handler(dbs[1], query, auth_obj, operation='fetchall')
 
     # If no data, exit the function #
     if not extract_call:
         return print_err('No contents in storage database to export', 2)
 
     # If data is to be extracted in plain text #
-    if prompt == 'plain':
+    if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
         key, nonce = cha_decrypt(auth_obj, dbs[0])
         # Initialize the ChaCha20 algo object #
@@ -84,7 +73,7 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
             text = b64decode(row[2])
 
             # If data is to be extracted in plain text #
-            if prompt == 'plain':
+            if is_crypt == 'plain':
                 # Decrypt the data #
                 text = decryptor.update(text)
 
@@ -104,43 +93,8 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
 
             # User specified file path #
             else:
-                # Use regex to strip out Documents from path #
-                win_path_parse = re.search(re_rel_winpath, row[1])
-                # Use regex to strip out Documents from path #
-                lin_path_parse = re.search(re_rel_linpath, row[1])
-
-                # If stored database path fails to match for both OS formats #
-                if not win_path_parse or lin_path_parse:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        file_path = f'{path}\\{row[0]}'
-                    # If OS is Linux #
-                    else:
-                        file_path = f'{path}/{row[0]}'
-                else:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        # If the stored path is in Linux format #
-                        if lin_path_parse:
-                            # Replace forward slash with backslash #
-                            path_parse = row[1].replace('/', '\\')
-                        else:
-                            path_parse = row[1]
-
-                        # Append relative path to user path to recursively rebuild #
-                        file_path = f'{path}\\{path_parse}\\{row[0]}'
-
-                    # If OS is Linux #
-                    else:
-                        # If the stored path is in Windows format #
-                        if win_path_parse:
-                            # Replace backwards slash with forward slash #
-                            path_parse = row[1].replace('\\', '/')
-                        else:
-                            path_parse = row[1]
-
-                        # Append relative path to user path to recursively rebuild #
-                        file_path = f'{path}/{path_parse}/{row[0]}'
+                # Validate and format extraction file path #
+                file_path = extract_parse(re_rel_winpath, re_rel_linpath, row, path)
 
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -149,7 +103,7 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
 
             print(f'File: {row[0]}')
 
-            if prompt2 == 'y':
+            if is_deleted == 'y':
                 # Delete item from storage database #
                 query = global_vars.db_delete(dbs[1], row[0])
                 query_handler(dbs[1], query, auth_obj)
@@ -157,16 +111,29 @@ def db_extract(dbs: tuple, auth_obj: object, folder: str, path: str):
     return print(f'\n\n[SUCCESS] Files from {folder} have been extracted')
 
 
-def db_store(dbs: tuple, auth_obj: object, path: str):
+def db_store(dbs: tuple, auth_obj: object, re_path):
     """
     Encrypts and inserts data into storage database.
 
     :param dbs: The database name tuple.
     :param auth_obj:  The authentication instance.
-    :param path:  Path where the files to be stored in the database are.
+    :param re_path:  Compiled regex to match input path.
     :return:  Nothing
     """
     encryptor = None
+
+    while True:
+        path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path'
+                           ' for database storage or enter for Import:\n')
+        # If regex fails and enter was not input #
+        if not re.search(re_path, path) and path != '':
+            print_err('Improper format .. try again', 2)
+            continue
+
+        break
+
+    if path == '':
+        path = global_vars.DIRS[3]
 
     # Prompt user if data being stored is encrypted or not #
     while True:
@@ -254,16 +221,33 @@ def db_store(dbs: tuple, auth_obj: object, path: str):
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
 
-def decryption(db_names: str, user: str, auth_obj: object, local_path: str):
+def decryption(db_names: str, auth_obj: object, re_user, re_path):
     """
     Decrypts data located on the file system.
 
     :param db_names:  The database name tuple.
-    :param user:  Username of the data to decrypt.
     :param auth_obj:  The authentication instance.
-    :param local_path:  Path to where the data is locally stored on disk.
+    :param re_user:  Compiled regex to match input username.
+    :param re_path:  Compiled regex to match input path.
     :return:  Prints successful operation or error message.
     """
+    while True:
+        user = input('Enter username of data to decrypt or hit enter for your own '
+                         'data: ')
+        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
+                           ' enter for DecryptDock\n')
+        # If username regex fails and enter was not entered
+        # or path regex fails and enter was not entered #
+        if not re.search(re_user, user) and user != '' or \
+                not re.search(re_path, local_path) and local_path != '':
+            print_err('Improper format .. try again', 2)
+            continue
+
+        break
+
+    if local_path == '':
+        local_path = global_vars.DIRS[1]
+
     # If local user is specified #
     if user == '':
         user_key = 'upload_key'
@@ -427,16 +411,26 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
             PARENT_ID = add_id
 
 
-def import_key(db_names: str, auth_obj: object, user: str, user_pass: str):
+def import_key(db_names: str, auth_obj: object, re_user, re_pass):
     """
     Import user's key to the encrypted local key database.
 
     :param db_names:  Database name tuple.
     :param auth_obj:  The authentication instance.
-    :param user:  Username associated with key import.
-    :param user_pass:  Temporary key sharing password.
+    :param re_user:  Compiled regex to match input username.
+    :param re_pass:  Compiled regex to match input user password.
     :return:  Prints successful operation or error message.
     """
+    while True:
+        user = input('Enter username for key to be imported: ')
+        user_pass = input('Enter user decryption password in text message: ')
+        # If username or password regex fail #
+        if not re.search(re_user, user) or not re.search(re_pass, user_pass):
+            print_err('Improper format .. try again', 2)
+            continue
+
+        break
+
     # If OS is Windows #
     if os.name == 'nt':
         key_path = f'{global_vars.DIRS[1]}\\{user}_decrypt.txt'
@@ -536,7 +530,7 @@ def list_storage(db_name: str, auth_obj: object):
     """
     # Fetch the contents of the storage database # #
     query = global_vars.db_contents(db_name)
-    list_call = query_handler(db_name, query, auth_obj, fetchall=True)
+    list_call = query_handler(db_name, query, auth_obj, operation='fetchall')
 
     # If no data, exit the function #
     if not list_call:
@@ -550,19 +544,77 @@ def list_storage(db_name: str, auth_obj: object):
     input('\nHit enter to continue ')
 
 
-def key_share(db_name: str, auth_obj: object, send_email: str, email_pass: str, receivers: str,
-              re_pass: object):
+def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
     """
     Share decryption key protected by a password through authentication-based encryption.
 
     :param db_name:  Keys database name.
     :param auth_obj:  The authentication instance.
-    :param send_email:  Key senders email address.
-    :param email_pass:  Key senders generated application password.
-    :param receivers:  Receivers email and phone information.
+    :param re_email:  Compiled regex for email address matching.
     :param re_pass:  Compiled regex for password matching.
+    :param re_phone:  Compiled regex for phone number matching.
     :return:  Nothing
     """
+    provider = None
+
+    # If OS is Windows #
+    if os.name == 'nt':
+        app_secret = f'{global_vars.CWD}\\AppSecret.txt'
+    # If OS is Linux #
+    else:
+        app_secret = f'{global_vars.CWD}/AppSecret.txt'
+
+    # If AppSecret for Gmail login is missing #
+    if not global_vars.file_check(app_secret):
+        return print_err('Missing application password (AppSecret.txt) to login Gmail API, '
+                         'generate password on Google account and save in AppSecret.txt in'
+                         ' main dir', 2)
+
+    email_pass = file_handler(app_secret, 'r', auth_obj, 'read')
+
+    while True:
+        send_email = input('Enter your gmail email address: ')
+        recv_email = input('Enter receivers email address for encrypted decryption key: ')
+        recv_email2 = input('Enter receivers encrypted email address(Protonmail, Tutanota,'
+                            ' Etc ..) for auth key: ')
+        recv_phone = input('Enter receivers phone number (no hyphens): ')
+        carrier = input('Select your phone provider (verizon, sprint, at&t, t-mobile, '
+                        'virgin, boost, us-cellular): ')
+
+        # If any of the input regex validations fail #
+        if not re.search(re_email, send_email) or not re.search(re_email, recv_email) \
+                or not re.search(re_email, recv_email2) or not re.search(re_phone, recv_phone):
+            print_err('One of the inputs provided were improper .. try again', 2)
+            continue
+
+        # If improper carrier was selected #
+        if carrier not in ('verizon', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost',
+                           'us-cellular'):
+            print_err('Improper provider selection made', 2)
+            continue
+
+        if carrier == 'verizon':
+            provider = 'vtext.com'
+        elif carrier == 'sprint':
+            provider = 'messaging.sprintpcs.com'
+        elif carrier == 'at&t':
+            provider = 'txt.att.net'
+        elif carrier == 't-mobile':
+            provider = 'tmomail.com'
+        elif carrier == 'virgin':
+            provider = 'vmobl.com'
+        elif carrier == 'boost':
+            provider = 'sms.myboostmobile.com'
+        elif carrier == 'us-cellular':
+            provider = 'email.uscc.net'
+        else:
+            print_err('Unknown exception occurred selecting phone provider', 2)
+            continue
+
+        break
+
+    receivers = (recv_email, recv_email2, f'{recv_phone}@{provider}')
+
     # Retrieve and decrypt ChaCha20 components #
     share_key, share_nonce = cha_decrypt(auth_obj, db_name)
 
@@ -628,19 +680,38 @@ def key_share(db_name: str, auth_obj: object, send_email: str, email_pass: str, 
     print('\n\n[SUCCESS] Keys and password successfully sent')
 
 
-def upload(dbs: tuple, auth_obj: object, local_path: str):
+def upload(dbs: tuple, auth_obj: object, re_path):
     """
     Manages encrypted recursive upload to Google Drive.
 
     :param dbs:  Database name tuple.
     :param auth_obj:  The authentication instance.
-    :param local_path:  Local path on disk to be uploaded.
+    :param re_path:  Compiled regex to match input path.
     :return:  Prints successful operation or error message.
     """
     global PARENT_ID
     encryptor = None
     folder = None
     prompt3 = None
+
+    while True:
+        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path for upload,'
+                           ' \"Storage\" for contents from storage database or enter for '
+                           'UploadDock:\n')
+        # If regex fails and Storage and enter was not input #
+        if not re.search(re_path, local_path) and local_path != 'Storage' and local_path != '':
+            print_err('Improper format .. try again', 2)
+            continue
+
+        break
+
+    # If user hit enter #
+    if local_path == '':
+        local_path = global_vars.DIRS[4]
+
+    # If user entered Storage #
+    if local_path == 'Storage':
+        local_path = None
 
     # Prompt user if data being uploaded is in encrypted or plain text #
     while True:
@@ -682,7 +753,7 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
     if not local_path:
         # Confirm the storage database has data to extract #
         query = global_vars.db_contents(dbs[1])
-        extract_call = query_handler(dbs[1], query, auth_obj, fetchall=True)
+        extract_call = query_handler(dbs[1], query, auth_obj, operation='fetchall')
 
         # If no data, exit the function #
         if not extract_call:
@@ -703,41 +774,8 @@ def upload(dbs: tuple, auth_obj: object, local_path: str):
                 # Decode base64 contents #
                 text = b64decode(row[2])
 
-                # Use regex to strip out Documents from path #
-                win_path_parse = re.search(re_rel_winpath, row[1])
-                # Use regex to strip out Documents from path #
-                lin_path_parse = re.search(re_rel_linpath, row[1])
-                # If stored database path fails to match for both OS formats #
-                if not win_path_parse or lin_path_parse:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        file_path = f'{local_path}\\{row[0]}'
-                    # If OS is Linux #
-                    else:
-                        file_path = f'{local_path}/{row[0]}'
-                else:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        # If the stored path is in Linux format #
-                        if lin_path_parse:
-                            # Replace forward slash with backslash #
-                            path_parse = row[1].replace('/', '\\')
-                        else:
-                            path_parse = row[1]
-
-                        # Append relative path to user path to recursively rebuild #
-                        file_path = f'{local_path}\\{path_parse}\\{row[0]}'
-                    # If OS is Linux #
-                    else:
-                        # If the stored path is in Windows format #
-                        if win_path_parse:
-                            # Replace backwards slash with forward slash #
-                            path_parse = row[1].replace('\\', '/')
-                        else:
-                            path_parse = row[1]
-
-                        # Append relative path to user path to recursively rebuild #
-                        file_path = f'{local_path}/{path_parse}/{row[0]}'
+                # Validate and format extraction file path #
+                file_path = extract_parse(re_rel_winpath, re_rel_linpath, row, local_path)
 
                 # Confirm all directories in file path exist #
                 os.makedirs(os.path.dirname(file_path), exist_ok=True)
