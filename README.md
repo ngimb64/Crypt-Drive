@@ -135,11 +135,24 @@ the new key set to be able to decrypt it.
 > upload &nbsp;-&nbsp; Manages encrypted recursive upload to Google Drive.
 
 -- menu_utils.py --
+> decrypt_input &nbsp;-&nbsp; Gathers users input for database data decryption function.
+
 > extract_input &nbsp;-&nbsp; Gathers users input for database data extraction function.
 
 > extract_parse &nbsp;-&nbsp; Attempts to match regex of recursive path on stored file path in 
 > extracted database row. If match fails, document is extracted to base directory entered in 
 > non-recursive fashion. If stored filepath is formatted as opposing OS, reformat it to current OS.
+
+> import_input &nbsp;-&nbsp; Gathers users input for key import function.
+
+> share_input &nbsp;-&nbsp; Gathers users input for key share function.
+
+> store_input &nbsp;-&nbsp; Gathers users input for database data storage function.
+
+> upload_extract &nbsp;-&nbsp; Extracts, decodes, and writes storage database contents to upload
+> dock for cloud drive upload.
+
+> upload_input &nbsp;-&nbsp; Gathers users input for data upload to cloud drive.
 
 -- utils.py --
 > cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.

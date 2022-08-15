@@ -1,8 +1,39 @@
 """ Built-in modules """
 import os
 import re
+from base64 import b64decode
 # Custom modules #
-from Modules.utils import print_err
+import Modules.globals as global_vars
+from Modules.utils import file_handler, print_err, query_handler
+
+
+def decrypt_input(re_user, re_path) -> tuple:
+    """
+    Gathers users input for database data decryption function.
+
+    :param re_user:  Compiled regex to match username.
+    :param re_path:  Compiled regex to match the path where the data is being decrypted.
+    :return:  Tuple of user validated input.
+    """
+    while True:
+        user = input('Enter username of data to decrypt or hit enter for your own '
+                     'data: ')
+        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
+                           ' enter for DecryptDock\n')
+        # If username regex fails and enter was not entered
+        # or path regex fails and enter was not entered #
+        if (not re.search(re_user, user) and user != '') or \
+        (not re.search(re_path, local_path) and local_path != ''):
+            print_err('Improper format .. try again following instructions', 2)
+            continue
+
+        break
+
+    if local_path == '':
+        local_path = global_vars.DIRS[1]
+
+    return user, local_path
+
 
 def extract_input(re_dir, re_path) -> tuple:
     """
@@ -10,7 +41,7 @@ def extract_input(re_dir, re_path) -> tuple:
 
     :param re_path:  Compiled regex to match input file path.
     :param re_dir:  Compiled regex to match input directory name.
-    :return:  tuple of validated user input.
+    :return:  Tuple of validated user input.
     """
     while True:
         dir_name = input('Enter folder name to be recursively exported from the database: ')
@@ -86,3 +117,214 @@ def extract_parse(re_rel_winpath, re_rel_linpath, row: list, path: str) -> str:
             file_path = f'{path}/{path_parse}/{row[0]}'
 
     return file_path
+
+
+def import_input(re_user, re_pass):
+    """
+    Gathers users input for key import function.
+
+    :param re_user:  Compiled regex for matching input username.
+    :param re_pass:  Compiled regex for matching input user password.
+    :return:  Tuple of user validated input.
+    """
+    while True:
+        user = input('Enter username for key to be imported: ')
+        user_pass = input('Enter user decryption password in text message: ')
+
+        # If username or password regex fail #
+        if not re.search(re_user, user) or not re.search(re_pass, user_pass):
+            print_err('Improper format .. try again following instructions', 2)
+            continue
+
+        return user, user_pass
+
+
+def share_input(re_email, re_phone, re_pass):
+    """
+    Gathers users input for key share function.
+
+    :param re_email:  Compiled regex for matching user input email.
+    :param re_phone:  Compiled regex for matching user input phone number.
+    :return:  Tuple of user validated input.
+    """
+    while True:
+        send_email = input('Enter your gmail email address: ')
+        recv_email = input('Enter receivers email address for encrypted decryption key: ')
+        recv_email2 = input('Enter receivers encrypted email address(Protonmail, Tutanota,'
+                            ' Etc ..) for auth key: ')
+        recv_phone = input('Enter receivers phone number (no hyphens): ')
+        carrier = input('Select your phone provider (verizon, sprint, at&t, t-mobile, '
+                        'virgin, boost, us-cellular): ')
+        key_pass = input('Enter password to encrypt key for email transmission: ')
+
+        # If any of the input regex validations fail #
+        if not re.search(re_email, send_email) or not re.search(re_email, recv_email) \
+        or not re.search(re_email, recv_email2) or not re.search(re_phone, recv_phone):
+            print_err('One of the inputs provided were improper .. try again', 2)
+            continue
+
+        # If invalid input was entered #
+        if not re.search(re_pass, key_pass):
+            print_err('Invalid password format .. numbers, letters'
+                      ' & _+$@&( special characters allowed', 2)
+            continue
+
+        # If improper carrier was selected #
+        if carrier not in ('verizon', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost',
+                           'us-cellular'):
+            print_err('Improper provider selection made', 2)
+            continue
+
+        if carrier == 'verizon':
+            provider = 'vtext.com'
+        elif carrier == 'sprint':
+            provider = 'messaging.sprintpcs.com'
+        elif carrier == 'at&t':
+            provider = 'txt.att.net'
+        elif carrier == 't-mobile':
+            provider = 'tmomail.com'
+        elif carrier == 'virgin':
+            provider = 'vmobl.com'
+        elif carrier == 'boost':
+            provider = 'sms.myboostmobile.com'
+        elif carrier == 'us-cellular':
+            provider = 'email.uscc.net'
+        else:
+            print_err('Unknown exception occurred selecting phone provider', 2)
+            continue
+
+        return send_email, recv_email, recv_email2, recv_phone, provider, key_pass
+
+
+def store_input(re_path) -> tuple:
+    """
+    Gathers users input for database data storage function.
+
+    :param re_path:  Compiled regex expression to match input file path.
+    :return:  Tuple of validated user input.
+    """
+    while True:
+        store_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path'
+                           ' for database storage or enter for Import:\n')
+        prompt = input('\nIs the data being stored encrypted already or in plain text'
+                       ' (encrypted or plain)? ')
+        prompt2 = input('\nDo you want to delete the files after stored in database (y or n)? ')
+
+        # If regex fails and enter was not input #
+        if (not re.search(re_path, store_path) and store_path != '') \
+        or prompt not in ('encrypted', 'plain') or prompt2 not in ('y', 'n'):
+            print_err('Improper format .. try again following directions', 2)
+            continue
+
+        break
+
+    if store_path == '':
+        store_path = global_vars.DIRS[3]
+
+    return store_path, prompt, prompt2
+
+
+def upload_extract(dbs: tuple, auth_obj: object, folder: str, prompt3: str):
+    """
+    Extracts, decodes, and writes storage database contents to upload dock for cloud drive upload.
+
+    :param dbs:  Database name tuple.
+    :param auth_obj:  The authentication instance.
+    :param folder:  Name of folder to be recursively extracted from database.
+    :param prompt3:  y/n value to determine whether the extracted data is to be deleted.
+    :return:  Nothing
+    """
+    # Confirm the storage database has data to extract #
+    query = global_vars.db_contents(dbs[1])
+    extract_call = query_handler(dbs[1], query, auth_obj, operation='fetchall')
+
+    # If no data, exit the function #
+    if not extract_call:
+        return print_err('No contents in storage database to upload', 2)
+
+    # Compile regex for parsing out Documents from stored path #
+    re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
+    re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
+    # Set local_path to UploadDock #
+    local_path = global_vars.DIRS[4]
+
+    print(f'\nExporting stored files from folder into Upload Dock:\n{36 * "*"}\n')
+
+    # Iterate through rows in storage db extract call #
+    for row in extract_call:
+        # If regex is successful #
+        if re.search(f'{re.escape(folder)}', row[1]):
+            # Decode base64 contents #
+            text = b64decode(row[2])
+
+            # Validate and format extraction file path #
+            file_path = extract_parse(re_rel_winpath, re_rel_linpath, row, local_path)
+
+            # Confirm all directories in file path exist #
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+            # Write data to path specified by user input #
+            file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
+
+            if prompt3 == 'y':
+                # Delete item from storage database #
+                query = global_vars.db_delete(dbs[1], row[0])
+                query_handler(dbs[1], query, auth_obj)
+
+    return None
+
+
+def upload_input(re_path):
+    """
+     Gathers users input for data upload to cloud drive.
+
+    :param re_path:  Compiled regex for matching user input file path.
+    :return:  Tuple of validated user input.
+    """
+    while True:
+        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path for upload,'
+                           ' \"Storage\" for contents from storage database or enter for '
+                           'UploadDock:\n')
+        # If regex fails and Storage and enter was not input #
+        if not re.search(re_path, local_path) and local_path != 'Storage' and local_path != '':
+            print_err('Improper format .. try again', 2)
+            continue
+
+        break
+
+    # If user hit enter #
+    if local_path == '':
+        local_path = global_vars.DIRS[4]
+
+    # If user entered Storage #
+    if local_path == 'Storage':
+        local_path = None
+
+    # Prompt user if data being uploaded is in encrypted or plain text #
+    while True:
+        prompt = input('\nIs the data being uploaded already encrypted or in plain text'
+                       ' (encrypted or plain)? ')
+        prompt2 = input('\nAfter uploading data to cloud should it be deleted (y or n)? ')
+
+        # If improper combination of inputs were supplied #
+        if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') \
+                or prompt2 not in ('y', 'n'):
+            print_err('Improper input provided .. if Storage selected,'
+                      ' encrypted must also be selected', 2)
+            continue
+
+        # If user hit enter and specified data is already encrypted #
+        if not local_path and prompt == 'encrypted':
+            folder = input('\nEnter the folder name to recursively extract'
+                           ' from storage database and upload: ')
+            prompt3 = input('\nShould the data extracted be deleted from the'
+                            ' data base after operation (y or n)? ')
+
+            # If regex validation fails or prompt2 is invalid #
+            if not re.search(r'^[a-zA-Z\d_.]{1,30}', folder) or prompt3 not in ('y', 'n'):
+                print_err('Improper input provided .. try again', 2)
+                continue
+
+            return local_path, prompt, prompt2, folder, prompt3
+
+        return local_path, prompt, prompt2, None, None

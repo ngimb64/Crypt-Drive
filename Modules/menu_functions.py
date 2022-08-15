@@ -13,14 +13,11 @@ from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
 import Modules.globals as global_vars
-from Modules.menu_utils import extract_input, extract_parse
+from Modules.menu_utils import decrypt_input, extract_input, extract_parse, import_input, \
+                               share_input, store_input, upload_extract, upload_input
 from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
                           fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
                           msg_format, msg_send, print_err, query_handler, secure_delete
-
-
-# Global variables #
-PARENT_ID = ''
 
 
 def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
@@ -122,34 +119,11 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
     """
     encryptor = None
 
-    while True:
-        path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path'
-                           ' for database storage or enter for Import:\n')
-        # If regex fails and enter was not input #
-        if not re.search(re_path, path) and path != '':
-            print_err('Improper format .. try again', 2)
-            continue
-
-        break
-
-    if path == '':
-        path = global_vars.DIRS[3]
-
-    # Prompt user if data being stored is encrypted or not #
-    while True:
-        prompt = input('\nIs the data being stored encrypted already or in plain text'
-                       ' (encrypted or plain)? ')
-        prompt2 = input('\nDo you want to delete the files after stored in database (y or n)? ')
-
-        # If improper input is provided #
-        if prompt not in ('encrypted', 'plain') or prompt2 not in ('y', 'n'):
-            print_err('Improper input provided .. try again selecting inputs provided', 2)
-            continue
-
-        break
+    # Prompt user for needed inputs to perform extraction #
+    path, is_crypt, is_deleted = store_input(re_path)
 
     # If the data to be stored is in plain text #
-    if prompt == 'plain':
+    if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
         key, nonce = cha_decrypt(auth_obj, dbs[0])
         # Initialize the ChaCha20 algo object #
@@ -192,7 +166,7 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
             file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
 
             # If in plain text, encrypt it #
-            if prompt == 'plain':
+            if is_crypt == 'plain':
                 # Encrypt the plain text data #
                 crypt = encryptor.update(file_data)
                 # Encrypted data is base64 encoded for storage #
@@ -208,11 +182,11 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
             print(f'File: {file}')
 
             # If user wants to delete stored files #
-            if prompt2 == 'y':
+            if is_deleted == 'y':
                 # Delete (unlink) from file system after storage #
                 secure_delete(curr_file)
 
-    if prompt2 == 'y':
+    if is_deleted == 'y':
         # Recursively delete leftover empty folders
         for dir_path, dir_names, _ in os.walk(path):
             [os.rmdir(f'{dir_path}\\{folder}') if os.name == 'nt'
@@ -231,22 +205,8 @@ def decryption(db_names: str, auth_obj: object, re_user, re_path):
     :param re_path:  Compiled regex to match input path.
     :return:  Prints successful operation or error message.
     """
-    while True:
-        user = input('Enter username of data to decrypt or hit enter for your own '
-                         'data: ')
-        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to or'
-                           ' enter for DecryptDock\n')
-        # If username regex fails and enter was not entered
-        # or path regex fails and enter was not entered #
-        if not re.search(re_user, user) and user != '' or \
-                not re.search(re_path, local_path) and local_path != '':
-            print_err('Improper format .. try again', 2)
-            continue
-
-        break
-
-    if local_path == '':
-        local_path = global_vars.DIRS[1]
+    # Prompt user for needed inputs to perform decryption #
+    user, local_path = decrypt_input(re_user, re_path)
 
     # If local user is specified #
     if user == '':
@@ -354,7 +314,7 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
                 break
 
 
-def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
+def folder_upload(drive: object, parent_dir, dir_list: list, http: object, parent_id: str) -> str:
     """
     Recursively uploads folders to Drive.
 
@@ -362,9 +322,9 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
     :param parent_dir:  Parent directory name.
     :param dir_list:  List of subdirectories to be created.
     :param http:  Http session instance.
-    :return:  Nothing
+    :param parent_id:  The current id of parent folder
+    :return:  The update id of parent folder.
     """
-    global PARENT_ID
     add_id = ''
 
     # If there are folders to upload #
@@ -381,7 +341,7 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
 
                 print(f'Directory: {directory}')
             else:
-                folder_list = drive.ListFile({'q': f'\"{PARENT_ID}\" in parents and trashed=false'}
+                folder_list = drive.ListFile({'q': f'\"{parent_id}\" in parents and trashed=false'}
                                              ).GetList()
 
                 # Iterate through fetched drive folder list #
@@ -403,12 +363,14 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object):
 
                         break
 
-        if not PARENT_ID:
-            # Set root as parent folder for next iteration
-            PARENT_ID = 'root'
-        else:
-            # Set added sub-folder id $
-            PARENT_ID = add_id
+        if not parent_id:
+            # Set root as parent folder for next iteration #
+            return 'root'
+
+        # Set added sub-folder id #
+        return add_id
+
+    return None
 
 
 def import_key(db_names: str, auth_obj: object, re_user, re_pass):
@@ -421,15 +383,8 @@ def import_key(db_names: str, auth_obj: object, re_user, re_pass):
     :param re_pass:  Compiled regex to match input user password.
     :return:  Prints successful operation or error message.
     """
-    while True:
-        user = input('Enter username for key to be imported: ')
-        user_pass = input('Enter user decryption password in text message: ')
-        # If username or password regex fail #
-        if not re.search(re_user, user) or not re.search(re_pass, user_pass):
-            print_err('Improper format .. try again', 2)
-            continue
-
-        break
+    # Prompt user for needed inputs to perform key import #
+    user, user_pass = import_input(re_user, re_pass)
 
     # If OS is Windows #
     if os.name == 'nt':
@@ -555,8 +510,6 @@ def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
     :param re_phone:  Compiled regex for phone number matching.
     :return:  Nothing
     """
-    provider = None
-
     # If OS is Windows #
     if os.name == 'nt':
         app_secret = f'{global_vars.CWD}\\AppSecret.txt'
@@ -570,65 +523,16 @@ def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
                          'generate password on Google account and save in AppSecret.txt in'
                          ' main dir', 2)
 
+    # Load app password from file #
     email_pass = file_handler(app_secret, 'r', auth_obj, 'read')
-
-    while True:
-        send_email = input('Enter your gmail email address: ')
-        recv_email = input('Enter receivers email address for encrypted decryption key: ')
-        recv_email2 = input('Enter receivers encrypted email address(Protonmail, Tutanota,'
-                            ' Etc ..) for auth key: ')
-        recv_phone = input('Enter receivers phone number (no hyphens): ')
-        carrier = input('Select your phone provider (verizon, sprint, at&t, t-mobile, '
-                        'virgin, boost, us-cellular): ')
-
-        # If any of the input regex validations fail #
-        if not re.search(re_email, send_email) or not re.search(re_email, recv_email) \
-                or not re.search(re_email, recv_email2) or not re.search(re_phone, recv_phone):
-            print_err('One of the inputs provided were improper .. try again', 2)
-            continue
-
-        # If improper carrier was selected #
-        if carrier not in ('verizon', 'sprint', 'at&t', 't-mobile', 'virgin', 'boost',
-                           'us-cellular'):
-            print_err('Improper provider selection made', 2)
-            continue
-
-        if carrier == 'verizon':
-            provider = 'vtext.com'
-        elif carrier == 'sprint':
-            provider = 'messaging.sprintpcs.com'
-        elif carrier == 'at&t':
-            provider = 'txt.att.net'
-        elif carrier == 't-mobile':
-            provider = 'tmomail.com'
-        elif carrier == 'virgin':
-            provider = 'vmobl.com'
-        elif carrier == 'boost':
-            provider = 'sms.myboostmobile.com'
-        elif carrier == 'us-cellular':
-            provider = 'email.uscc.net'
-        else:
-            print_err('Unknown exception occurred selecting phone provider', 2)
-            continue
-
-        break
+    # Prompt user for needed inputs to perform key sharing #
+    send_email, recv_email, recv_email2, \
+    recv_phone, provider, key_pass = share_input(re_email, re_phone, re_pass)
 
     receivers = (recv_email, recv_email2, f'{recv_phone}@{provider}')
 
     # Retrieve and decrypt ChaCha20 components #
     share_key, share_nonce = cha_decrypt(auth_obj, db_name)
-
-    # Prompt user for password to protect key on transit #
-    while True:
-        key_pass = input('Enter password to encrypt key for email transmission: ')
-
-        # If invalid input was entered #
-        if not re.search(re_pass, key_pass):
-            print_err('Invalid password format .. numbers, letters'
-                     ' & _+$@&( special characters allowed', 2)
-            continue
-
-        break
 
     # Create AESCCM password authenticated key #
     key = AESCCM.generate_key(bit_length=256)
@@ -674,10 +578,10 @@ def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
 
     # Delete sent items
     [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
-
     # Change dir back into __main__ #
     os.chdir(global_vars.CWD)
-    print('\n\n[SUCCESS] Keys and password successfully sent')
+
+    return print('\n\n[SUCCESS] Keys and password successfully sent')
 
 
 def upload(dbs: tuple, auth_obj: object, re_path):
@@ -689,56 +593,9 @@ def upload(dbs: tuple, auth_obj: object, re_path):
     :param re_path:  Compiled regex to match input path.
     :return:  Prints successful operation or error message.
     """
-    global PARENT_ID
     encryptor = None
-    folder = None
-    prompt3 = None
-
-    while True:
-        local_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path for upload,'
-                           ' \"Storage\" for contents from storage database or enter for '
-                           'UploadDock:\n')
-        # If regex fails and Storage and enter was not input #
-        if not re.search(re_path, local_path) and local_path != 'Storage' and local_path != '':
-            print_err('Improper format .. try again', 2)
-            continue
-
-        break
-
-    # If user hit enter #
-    if local_path == '':
-        local_path = global_vars.DIRS[4]
-
-    # If user entered Storage #
-    if local_path == 'Storage':
-        local_path = None
-
-    # Prompt user if data being uploaded is in encrypted or plain text #
-    while True:
-        prompt = input('\nIs the data being uploaded already encrypted or in plain text'
-                       ' (encrypted or plain)? ')
-        prompt2 = input('\nAfter uploading data to cloud should it be deleted (y or n)? ')
-
-        # If improper combination of inputs were supplied #
-        if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') \
-        or prompt2 not in ('y', 'n'):
-            print_err('Improper input provided .. if Storage selected,'
-                     ' encrypted must also be selected', 2)
-            continue
-
-        # If user hit enter and specified data is already encrypted #
-        if not local_path and prompt == 'encrypted':
-            folder = input('\nEnter the folder name to recursively extract'
-                           ' from storage database and upload: ')
-            prompt3 = input('\nShould the data extracted be deleted from the'
-                            ' data base after operation (y or n)? ')
-
-            # If regex validation fails or prompt2 is invalid #
-            if not re.search(r'^[a-zA-Z\d_.]{1,30}', folder) or prompt2 not in ('y', 'n'):
-                print_err('Improper input provided .. try again', 2)
-                continue
-
-        break
+    # Prompt user for needed inputs to perform cloud drive upload #
+    local_path, prompt, prompt2, folder, prompt3 = upload_input(re_path)
 
     if prompt == 'plain':
         # Retrieve and decrypt ChaCha20 components #
@@ -751,42 +608,8 @@ def upload(dbs: tuple, auth_obj: object, re_path):
     # If local_path was passed in as None
     # due to the user selecting storage #
     if not local_path:
-        # Confirm the storage database has data to extract #
-        query = global_vars.db_contents(dbs[1])
-        extract_call = query_handler(dbs[1], query, auth_obj, operation='fetchall')
-
-        # If no data, exit the function #
-        if not extract_call:
-            return print_err('No contents in storage database to upload', 2)
-
-        # Compile regex for parsing out Documents from stored path #
-        re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
-        re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
-        # Set local_path to UploadDock #
-        local_path = global_vars.DIRS[4]
-
-        print(f'\nExporting stored files from folder into Upload Dock:\n{36 * "*"}\n')
-
-        # Iterate through rows in storage db extract call #
-        for row in extract_call:
-            # If regex is successful #
-            if re.search(f'{re.escape(folder)}', row[1]):
-                # Decode base64 contents #
-                text = b64decode(row[2])
-
-                # Validate and format extraction file path #
-                file_path = extract_parse(re_rel_winpath, re_rel_linpath, row, local_path)
-
-                # Confirm all directories in file path exist #
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-                # Write data to path specified by user input #
-                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
-
-                if prompt3 == 'y':
-                    # Delete item from storage database #
-                    query = global_vars.db_delete(dbs[1], row[0])
-                    query_handler(dbs[1], query, auth_obj)
+        # Extract contents from storage database for upload #
+        upload_extract(dbs, auth_obj, folder, prompt3)
 
     # Authenticate drive #
     gauth = auth.GoogleAuth()
@@ -815,6 +638,7 @@ def upload(dbs: tuple, auth_obj: object, re_path):
     ext = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
            '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf',
            '.png', '.pptx', '.rar', '.wav', '.wma', '.zip')
+    parent_id = ''
 
     print(f'\nUploading files in path:\n{25 * "*"}')
 
@@ -875,10 +699,10 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         # If match for local files #
         if not file_path:
             # Create folder in drive #
-            folder_upload(drive, None, folder_names, http)
+            parent_id = folder_upload(drive, None, folder_names, http, parent_id)
         else:
             # Create folder in UploadDock #
-            folder_upload(drive, upload_path, folder_names, http)
+            parent_id = folder_upload(drive, upload_path, folder_names, http, parent_id)
 
         for file in file_names:
             # If OS is Windows #
@@ -985,7 +809,5 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         for folder_path, folder_names, _ in os.walk(local_path):
             [os.rmdir(f'{folder_path}\\{dirname}') if os.name == 'nt'
              else os.rmdir(f'{folder_path}/{dirname}') for dirname in folder_names]
-
-    PARENT_ID = ''
 
     return print(f'\n\n[SUCCESS] Files from {local_path} have been uploaded')
