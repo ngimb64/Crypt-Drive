@@ -4,7 +4,6 @@ import os
 import re
 from base64 import b64encode, b64decode
 from getpass import getuser
-from pathlib import Path
 from shutil import rmtree
 # External Modules #
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -13,8 +12,9 @@ from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
 import Modules.globals as global_vars
-from Modules.menu_utils import decrypt_input, extract_input, extract_parse, import_input, \
-                               share_input, store_input, upload_extract, upload_input
+from Modules.menu_utils import upload_dir_handler, decrypt_input, extract_input, extract_parse, \
+                               import_input, meta_handler, share_input, store_input, \
+                               upload_extract, upload_input, upload_stage
 from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
                           fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
                           msg_format, msg_send, print_err, query_handler, secure_delete
@@ -655,46 +655,21 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         # If match for upload path #
         if upload_path_match:
             upload_path = str(upload_path_match.group(0))
+        # If in the base directory #
         else:
             upload_path = None
 
         # If match for local files #
         if file_path_match:
             file_path = str(file_path_match.group(0))
+        # If in the base directory #
         else:
             file_path = None
 
-        # Upload folder to Drive #
+        # Iterate through folders to upload #
         for dirname in folder_names:
-            try:
-                # If in root directory #
-                if not file_path:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        # Create dir in UploadDock #
-                        os.mkdir(f'{global_vars.DIRS[4]}\\{dirname}')
-                    # If OS is Linux #
-                    else:
-                        # Create dir in UploadDock #
-                        os.mkdir(f'{global_vars.DIRS[4]}/{dirname}')
-
-                # If in recursive directory #
-                else:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        # Set the path for recursive directory creation #
-                        create_path = Path(f'{global_vars.CWD}\\UploadDock\\{file_path}\\{dirname}')
-                    # If OS is Linux #
-                    else:
-                        # Set the path for recursive directory creation #
-                        create_path = Path(f'{global_vars.CWD}/UploadDock/{file_path}/{dirname}')
-
-                    # Create dir path in UploadDock #
-                    create_path.mkdir(parents=True, exist_ok=True)
-
-            # Ignore if dir already exists #
-            except FileExistsError:
-                pass
+            # Ensure all the directory's exist #
+            upload_dir_handler(file_path, dirname)
 
         # If match for local files #
         if not file_path:
@@ -704,6 +679,7 @@ def upload(dbs: tuple, auth_obj: object, re_path):
             # Create folder in UploadDock #
             parent_id = folder_upload(drive, upload_path, folder_names, http, parent_id)
 
+        # Iterate through files to upload #
         for file in file_names:
             # If OS is Windows #
             if os.name == 'nt':
@@ -727,54 +703,13 @@ def upload(dbs: tuple, auth_obj: object, re_path):
                 else:
                     crypt = file_data
 
-                # If in root directory #
-                if not file_path:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        upload_dock_file = f'{global_vars.DIRS[4]}\\{file}'
-                    # If OS is Linux #
-                    else:
-                        upload_dock_file = f'{global_vars.DIRS[4]}/{file}'
-
-                    # Re-write data in upload dock retaining file structure #
-                    file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
-                # If in recursive directory #
-                else:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        upload_dock_file = f'{global_vars.DIRS[4]}\\{file_path}\\{file}'
-                    # If OS is Linux #
-                    else:
-                        upload_dock_file = f'{global_vars.DIRS[4]}/{file_path}/{file}'
-
-                    # Re-write data in upload dock retaining file structure #
-                    file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
+                # Copy write encrypted data to fresh file in UploadDock #
+                upload_stage(file_path, file, auth_obj, crypt)
 
             # If file contains extension suggesting metadata #
             if file.endswith(ext):
-                # If in the base dir #
-                if not file_path:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        curr_file = f'{folder_path}\\{file}'
-                    # If OS is Linux #
-                    else:
-                        curr_file = f'{folder_path}/{file}'
-
-                    # Strip all the metadata before storing #
-                    strip = meta_strip(curr_file)
-                # If in a recursive dir #
-                else:
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        curr_file = f'{folder_path}\\{file_path}\\{file}'
-                    # If OS is Linux #
-                    else:
-                        curr_file = f'{folder_path}/{file_path}/{file}'
-
-                    # Strip all the metadata before storing #
-                    strip = meta_strip(curr_file)
-
+                # Format path and scrub metadata #
+                strip = meta_handler(file_path, folder_path, file)
                 # If metadata strip failed, avoid uploading #
                 if not strip:
                     continue

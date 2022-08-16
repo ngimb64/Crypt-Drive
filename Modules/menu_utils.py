@@ -2,9 +2,10 @@
 import os
 import re
 from base64 import b64decode
+from pathlib import Path
 # Custom modules #
 import Modules.globals as global_vars
-from Modules.utils import file_handler, print_err, query_handler
+from Modules.utils import file_handler, meta_strip, print_err, query_handler
 
 
 def decrypt_input(re_user, re_path) -> tuple:
@@ -139,12 +140,47 @@ def import_input(re_user, re_pass):
         return user, user_pass
 
 
+def meta_handler(file_path, folder_path: str, file: str) -> bool:
+    """
+    Formats file path whether in recursive directory or not depending on OS. Passes formatted file \
+    path into meta_strip function to strip the file metadata.
+
+    :param file_path:  The recursive file path matched (if matched or None).
+    :param folder_path:  The base path of the file to be scrubbed.
+    :param file:  The name of the file to be scrubbed.
+    :return:  Boolean result of meta_strip call.
+    """
+    # If in the base dir #
+    if not file_path:
+        # If OS is Windows #
+        if os.name == 'nt':
+            curr_file = f'{folder_path}\\{file}'
+        # If OS is Linux #
+        else:
+            curr_file = f'{folder_path}/{file}'
+
+        # Strip all the metadata before storing #
+        return meta_strip(curr_file)
+    # If in a recursive dir #
+    else:
+        # If OS is Windows #
+        if os.name == 'nt':
+            curr_file = f'{folder_path}\\{file_path}\\{file}'
+        # If OS is Linux #
+        else:
+            curr_file = f'{folder_path}/{file_path}/{file}'
+
+        # Strip all the metadata before storing #
+        return meta_strip(curr_file)
+
+
 def share_input(re_email, re_phone, re_pass):
     """
     Gathers users input for key share function.
 
     :param re_email:  Compiled regex for matching user input email.
     :param re_phone:  Compiled regex for matching user input phone number.
+    :param re_pass: Compiled regex for matching user password.
     :return:  Tuple of user validated input.
     """
     while True:
@@ -224,6 +260,45 @@ def store_input(re_path) -> tuple:
     return store_path, prompt, prompt2
 
 
+def upload_dir_handler(file_path, dirname: str):
+    """
+    Ensures the full path to the passed in directory name is created.
+
+    :param file_path:  The recursive file path matched (if matched or None).
+    :param dirname:  The directory name to be created.
+    :return:  Nothing
+    """
+    try:
+        # If in root directory #
+        if not file_path:
+            # If OS is Windows #
+            if os.name == 'nt':
+                # Create dir in UploadDock #
+                os.mkdir(f'{global_vars.DIRS[4]}\\{dirname}')
+            # If OS is Linux #
+            else:
+                # Create dir in UploadDock #
+                os.mkdir(f'{global_vars.DIRS[4]}/{dirname}')
+
+        # If in recursive directory #
+        else:
+            # If OS is Windows #
+            if os.name == 'nt':
+                # Set the path for recursive directory creation #
+                create_path = Path(f'{global_vars.CWD}\\UploadDock\\{file_path}\\{dirname}')
+            # If OS is Linux #
+            else:
+                # Set the path for recursive directory creation #
+                create_path = Path(f'{global_vars.CWD}/UploadDock/{file_path}/{dirname}')
+
+            # Create dir path in UploadDock #
+            create_path.mkdir(parents=True, exist_ok=True)
+
+    # Ignore if dir already exists #
+    except FileExistsError:
+        pass
+
+
 def upload_extract(dbs: tuple, auth_obj: object, folder: str, prompt3: str):
     """
     Extracts, decodes, and writes storage database contents to upload dock for cloud drive upload.
@@ -232,7 +307,7 @@ def upload_extract(dbs: tuple, auth_obj: object, folder: str, prompt3: str):
     :param auth_obj:  The authentication instance.
     :param folder:  Name of folder to be recursively extracted from database.
     :param prompt3:  y/n value to determine whether the extracted data is to be deleted.
-    :return:  Nothing
+    :return:  None on success or prints error.
     """
     # Confirm the storage database has data to extract #
     query = global_vars.db_contents(dbs[1])
@@ -240,7 +315,8 @@ def upload_extract(dbs: tuple, auth_obj: object, folder: str, prompt3: str):
 
     # If no data, exit the function #
     if not extract_call:
-        return print_err('No contents in storage database to upload', 2)
+        print_err('No contents in storage database to upload', 2)
+        return False
 
     # Compile regex for parsing out Documents from stored path #
     re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
@@ -271,7 +347,7 @@ def upload_extract(dbs: tuple, auth_obj: object, folder: str, prompt3: str):
                 query = global_vars.db_delete(dbs[1], row[0])
                 query_handler(dbs[1], query, auth_obj)
 
-    return None
+    return True
 
 
 def upload_input(re_path):
@@ -287,7 +363,7 @@ def upload_input(re_path):
                            'UploadDock:\n')
         # If regex fails and Storage and enter was not input #
         if not re.search(re_path, local_path) and local_path != 'Storage' and local_path != '':
-            print_err('Improper format .. try again', 2)
+            print_err('Improper format .. try again following directions', 2)
             continue
 
         break
@@ -308,7 +384,7 @@ def upload_input(re_path):
 
         # If improper combination of inputs were supplied #
         if prompt not in ('encrypted', 'plain') or (not local_path and prompt == 'plain') \
-                or prompt2 not in ('y', 'n'):
+        or prompt2 not in ('y', 'n'):
             print_err('Improper input provided .. if Storage selected,'
                       ' encrypted must also be selected', 2)
             continue
@@ -328,3 +404,37 @@ def upload_input(re_path):
             return local_path, prompt, prompt2, folder, prompt3
 
         return local_path, prompt, prompt2, None, None
+
+
+def upload_stage(file_path, file: str, auth_obj: object, crypt: bytes):
+    """
+    Makes of copy of file data to be uploaded in the UploadDock folder.
+
+    :param file_path:  The recursive file path matched (if matched or None).
+    :param file:  The file name to be uploaded.
+    :param auth_obj:  The authentication instance.
+    :param crypt:  Encrypted data to be copied to new file in UploadDock for Upload.
+    :return:  Nothing
+    """
+    # If in root directory #
+    if not file_path:
+        # If OS is Windows #
+        if os.name == 'nt':
+            upload_dock_file = f'{global_vars.DIRS[4]}\\{file}'
+        # If OS is Linux #
+        else:
+            upload_dock_file = f'{global_vars.DIRS[4]}/{file}'
+
+        # Re-write data in upload dock retaining file structure #
+        file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)
+    # If in recursive directory #
+    else:
+        # If OS is Windows #
+        if os.name == 'nt':
+            upload_dock_file = f'{global_vars.DIRS[4]}\\{file_path}\\{file}'
+        # If OS is Linux #
+        else:
+            upload_dock_file = f'{global_vars.DIRS[4]}/{file_path}/{file}'
+
+        # Re-write data in upload dock retaining file structure #
+        file_handler(upload_dock_file, 'wb', auth_obj, operation='write', data=crypt)

@@ -30,15 +30,15 @@ the new key set to be able to decrypt it.
 - For Windows in the Scripts directory, for execute the `./activate` script to activate the virtual environment.
 - For Linux in the bin directory, run the command `source activate` to activate the virtual environment.
 
-
 - Create a gmail account or login to existing account.
 - Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
   https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
-- Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the settingsTemplate.yaml
-  file where specified, which saves credentials after the first use of api. Then rename the file to settings.yaml.
-- Once the API credentials are saved, turn in two-factor authentication in security settings in google account. After
-  that is set, an Application Password can be generated in Google account settings and need to be saved in the base
-  directory in CryptDrive as a file named AppSecret.txt.
+- Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the 
+  settingsTemplate.yaml file where specified, which saves credentials after the first use of api. 
+  Then rename the file to settings.yaml.
+- Once the API credentials are saved, turn on two-factor authentication in security settings in 
+  google account. After that is set, an Application Password can be generated in Google account 
+  settings and need to be saved in the base directory in CryptDrive as a file named AppSecret.txt.
 - The API credentials are for Drive authentication and the AppSecret.txt is for Gmail authentication.
 
 ### Encryption scheme:
@@ -145,14 +145,21 @@ the new key set to be able to decrypt it.
 
 > import_input &nbsp;-&nbsp; Gathers users input for key import function.
 
+> meta_handler &nbsp;-&nbsp; Formats file path whether in recursive directory or not depending on \
+> OS. Passes formatted file path into meta_strip function to strip the file metadata.
+
 > share_input &nbsp;-&nbsp; Gathers users input for key share function.
 
 > store_input &nbsp;-&nbsp; Gathers users input for database data storage function.
+
+> upload_dir_handler &nbsp;-&nbsp; Ensures the full path to the passed in directory name is created.
 
 > upload_extract &nbsp;-&nbsp; Extracts, decodes, and writes storage database contents to upload
 > dock for cloud drive upload.
 
 > upload_input &nbsp;-&nbsp; Gathers users input for data upload to cloud drive.
+
+> upload_stage &nbsp;-&nbsp; Makes of copy of file data to be uploaded in the UploadDock folder.
 
 -- utils.py --
 > cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.
