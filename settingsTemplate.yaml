@@ -1,7 +1,7 @@
 client_config_backend: settings
 client_config:
-  client_id:  [ADD ID]
-  client_secret: [ADD Secret]
+  client_id: [add client id]
+  client_secret: [add client secret]
 
 save_credentials: True
 save_credentials_backend: file

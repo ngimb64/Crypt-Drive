@@ -125,7 +125,7 @@ def db_storage(db_name: str) -> str:
     :return:  Formatted MySQL query.
     """
     return f'CREATE TABLE {db_name}(name VARCHAR(20) PRIMARY KEY NOT NULL, path TINYTEXT NOT NULL' \
-           'data LONGTEXT NOT NULL);'
+            ', data LONGTEXT NOT NULL);'
 
 
 def db_insert(db_name: str, name_val: str, data_val: str) -> str:

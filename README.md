@@ -31,8 +31,8 @@ the new key set to be able to decrypt it.
 - For Linux in the bin directory, run the command `source activate` to activate the virtual environment.
 
 - Create a gmail account or login to existing account.
-- Follow these steps but for step 5 create OAuth 2.0 Client ID instead of api keys 
-  https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
+- Follow these steps but for step 5 create OAuth 2.0 Client ID and secret in Google Cloud instead 
+  of api keys https://support.google.com/googleapi/answer/6158862/setting-up-api-keys?hl=en
 - Click on the created OAuth 2.0 Client ID then copy the Client ID & Client secret to the 
   settingsTemplate.yaml file where specified, which saves credentials after the first use of api. 
   Then rename the file to settings.yaml.

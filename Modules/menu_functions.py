@@ -175,8 +175,14 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
                 # Cipher data is base64 encoded for storage #
                 data = b64encode(file_data).decode()
 
+            # If the relative path regex matches #
+            if rel_path:
+                relative_path = rel_path.group(0)
+            else:
+                relative_path = None
+
             # Path is stored like "Documents\path\to\folder", file is stored as the name #
-            query = global_vars.db_store(dbs[1], file, rel_path.group(0), data)
+            query = global_vars.db_store(dbs[1], file, relative_path, data)
             query_handler(dbs[1], query, auth_obj)
 
             print(f'File: {file}')
@@ -289,7 +295,7 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
         # Set Drive object content to locally stored file #
         file_obj.SetContentFile(curr_file)
         # Upload file & pass http object into upload call #
-        file_obj.upload(param={'http': http})
+        file_obj.Upload(param={'http': http})
     else:
         # If OS is Windows #
         if os.name == 'nt':
@@ -310,7 +316,7 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
                 # Set Drive object content to locally stored file in recursive dir #
                 file_obj.SetContentFile(curr_file)
                 # Upload & pass http object into upload call #
-                file_obj.upload(param={'http': http})
+                file_obj.Upload(param={'http': http})
                 break
 
 
@@ -337,9 +343,9 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
                 folder = drive.CreateFile({'title': directory,
                                            'mimeType': 'application/vnd.google-apps.folder'})
                 # Upload & pass http object into upload call #
-                folder.upload(param={'http': http})
+                folder.Upload(param={'http': http})
 
-                print(f'Directory: {directory}')
+                print(f'`Directory: {directory}')
             else:
                 folder_list = drive.ListFile({'q': f'\"{parent_id}\" in parents and trashed=false'}
                                              ).GetList()
@@ -354,7 +360,7 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
                                                    'mimeType': 'application/vnd.google-apps.folder'}
                                                   )
                         # Upload & pass http object into upload call #
-                        parent.upload(param={'http': http})
+                        parent.Upload(param={'http': http})
 
                         print(f'Directory: {directory}')
 
