@@ -186,7 +186,7 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
             sys_lock()
 
         # After three password failures #
-        elif count in (3, 6, 9):
+        if count in (3, 6, 9):
             # Display login timeout for interval of 60 seconds #
             login_timeout()
 

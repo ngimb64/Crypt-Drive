@@ -345,8 +345,9 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
                 # Upload & pass http object into upload call #
                 folder.Upload(param={'http': http})
 
-                print(f'`Directory: {directory}')
+                print(f'Directory: {directory}')
             else:
+                # Get list of folders based on parent id #
                 folder_list = drive.ListFile({'q': f'\"{parent_id}\" in parents and trashed=false'}
                                              ).GetList()
 
@@ -487,7 +488,7 @@ def list_storage(db_name: str, auth_obj: object):
 
     :param db_name:  Storage database name.
     :param auth_obj:  The authentication instance.
-    :return:   Nothing
+    :return:  Waits for user input to exit or prints error message.
     """
     # Fetch the contents of the storage database # #
     query = global_vars.db_contents(db_name)
@@ -495,14 +496,13 @@ def list_storage(db_name: str, auth_obj: object):
 
     # If no data, exit the function #
     if not list_call:
-        print_err('No contents in storage database to export', 1)
-        return
+        return print_err('No contents in storage database to export', 1)
 
     print(f'\nStorage Database Contents\n{(26 * "*")}\n')
     # Print the results of the retrieved database #
     [print(f'File name:  {row[0]:30s}  Saved path:  {row[1]:30s}') for row in list_call]
 
-    input('\nHit enter to continue ')
+    return input('\nHit enter to continue ')
 
 
 def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
@@ -625,19 +625,26 @@ def upload(dbs: tuple, auth_obj: object, re_path):
     # Create reusable http object, preventing re-authentication per call #
     http = drive.auth.Get_Http_Object()
 
-    # Grab the rightmost directory of the current path for upload #
+    # If OS is Windows #
     if os.name == 'nt':
-        re_upload_path = re.compile(r'[^\\]{1,30}$')
+        # Grab the rightmost directory of the current path for upload #
+        re_upload_path = re.compile(r'[^\\]{1,60}$')
+    # If OS is Linux #:
     else:
-        re_upload_path = re.compile(r'[^/]{1,30}$')
+        # Grab the rightmost directory of the current path for upload #
+        re_upload_path = re.compile(r'[^/]{1,60}$')
 
     # Grab only the rightmost directory of path save result in other regex
     # as anchor point for confirming recursive directories while crawling #
     re_path_edge = re.search(re_upload_path, local_path)
-    # Insert path edge regex match into regex to match any path past the edge anchor point #
+
+    # If OS is Windows #
     if os.name == 'nt':
+        # Insert path edge regex match into regex to match any path past the edge anchor point #
         re_file_path = re.compile(rf'(?<={re.escape(str(re_path_edge.group(0)))}\\).+$')
+    # If OS is Linux #
     else:
+        # Insert path edge regex match into regex to match any path past the edge anchor point #
         re_file_path = re.compile(rf'(?<={re.escape(str(re_path_edge.group(0)))}/).+$')
 
     # List of file extension types #
@@ -672,67 +679,25 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         else:
             file_path = None
 
-        # Iterate through folders to upload #
-        for dirname in folder_names:
-            # Ensure all the directory's exist #
-            upload_dir_handler(file_path, dirname)
+        # If there are folders to be uploaded #
+        if folder_names:
+            # Iterate through folders to upload #
+            for dirname in folder_names:
+                # Ensure all the directory's exist #
+                upload_dir_handler(file_path, dirname)
 
-        # If match for local files #
-        if not file_path:
-            # Create folder in drive #
-            parent_id = folder_upload(drive, None, folder_names, http, parent_id)
-        else:
-            # Create folder in UploadDock #
-            parent_id = folder_upload(drive, upload_path, folder_names, http, parent_id)
-
-        # Iterate through files to upload #
-        for file in file_names:
-            # If OS is Windows #
-            if os.name == 'nt':
-                curr_file = f'{folder_path}\\{file}'
-            # If OS is Linux #
-            else:
-                curr_file = f'{folder_path}/{file}'
-
-            # If file is empty ignore and move to next #
-            if not os.stat(curr_file).st_size > 0:
-                continue
-
-            # If the UploadDock is not being used  #
-            if local_path != global_vars.DIRS[4]:
-                # Read file data #
-                file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
-
-                # If in plain text, encrypt it #
-                if prompt == 'plain':
-                    crypt = encryptor.update(file_data)
-                else:
-                    crypt = file_data
-
-                # Copy write encrypted data to fresh file in UploadDock #
-                upload_stage(file_path, file, auth_obj, crypt)
-
-            # If file contains extension suggesting metadata #
-            if file.endswith(ext):
-                # Format path and scrub metadata #
-                strip = meta_handler(file_path, folder_path, file)
-                # If metadata strip failed, avoid uploading #
-                if not strip:
-                    continue
-
-            # If in root directory #
+            # If match for local files #
             if not file_path:
-                # Upload file to Drive #
-                file_upload(drive, None, global_vars.DIRS[4], file, http, None)
-            # If in recursive directory #
+                # Create folder in drive #
+                parent_id = folder_upload(drive, None, folder_names, http, parent_id)
             else:
-                # Upload file to Drive #
-                file_upload(drive, upload_path, global_vars.DIRS[4], file, http, file_path)
+                # Create folder in UploadDock #
+                parent_id = folder_upload(drive, upload_path, folder_names, http, parent_id)
 
-            print(f'File: {file}')
-
-            # If the user wants to delete data after uploading #
-            if prompt2 == 'y':
+        # If there are files to be uploaded in current path #
+        if file_names:
+            # Iterate through files to upload #
+            for file in file_names:
                 # If OS is Windows #
                 if os.name == 'nt':
                     curr_file = f'{folder_path}\\{file}'
@@ -740,7 +705,53 @@ def upload(dbs: tuple, auth_obj: object, re_path):
                 else:
                     curr_file = f'{folder_path}/{file}'
 
-                secure_delete(curr_file)
+                # If file is empty ignore and move to next #
+                if not os.stat(curr_file).st_size > 0:
+                    continue
+
+                # If the UploadDock is not being used  #
+                if local_path != global_vars.DIRS[4]:
+                    # Read file data #
+                    file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
+
+                    # If in plain text, encrypt it #
+                    if prompt == 'plain':
+                        crypt = encryptor.update(file_data)
+                    else:
+                        crypt = file_data
+
+                    # Copy write encrypted data to fresh file in UploadDock #
+                    upload_stage(file_path, file, auth_obj, crypt)
+
+                # If file contains extension suggesting metadata #
+                if file.endswith(ext):
+                    # Format path and scrub metadata #
+                    strip = meta_handler(file_path, folder_path, file)
+                    # If metadata strip failed, avoid uploading #
+                    if not strip:
+                        continue
+
+                # If in root directory #
+                if not file_path:
+                    # Upload file to Drive #
+                    file_upload(drive, None, global_vars.DIRS[4], file, http, None)
+                # If in recursive directory #
+                else:
+                    # Upload file to Drive #
+                    file_upload(drive, upload_path, global_vars.DIRS[4], file, http, file_path)
+
+                print(f'File: {file}')
+
+                # If the user wants to delete data after uploading #
+                if prompt2 == 'y':
+                    # If OS is Windows #
+                    if os.name == 'nt':
+                        curr_file = f'{folder_path}\\{file}'
+                    # If OS is Linux #
+                    else:
+                        curr_file = f'{folder_path}/{file}'
+
+                    secure_delete(curr_file)
 
     # Clear all data in UploadDock #
     rmtree(global_vars.DIRS[4])

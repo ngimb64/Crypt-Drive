@@ -794,6 +794,10 @@ def meta_strip(file_path: str) -> bool:
         except KeyError:
             pass
 
+        # If error occurs during byte unpack operation #
+        except ValueError:
+            return False
+
         # If file IO error occurs #
         except (AttributeError, IOError):
             # If 3 failed attempts #
@@ -1054,7 +1058,7 @@ def system_cmd(cmd: str, stdout, stderr, exec_time: int):
     with Popen(exe, stdout=stdout, stderr=stderr, shell=True) as command:
         try:
             # Execute command with passed in timeout threshold #
-            command.communicate(exec_time)
+            command.communicate(timeout=exec_time)
 
         # Handles process timeouts and errors #
         except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
