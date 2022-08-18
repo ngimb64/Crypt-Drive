@@ -241,18 +241,18 @@ the new key set to be able to decrypt it.
 
 ## Exit Codes
 -- crypt_drive.py --
-0 - Successful operation <br>
-1 - Error occurred during program startup <br>
-3 - Error occurred decrypting keyring in startup (password_input)<br>
+> 0 - Successful operation <br>
+> 1 - Error occurred during program startup <br>
+> 3 - Error occurred decrypting keyring in startup (password_input)<br>
 
 -- auth_crypt.py --
-5 - Error decrypting the cipher hashed secret (get_plain_secret)<br>
-6 - Error decrypting the database Fernet key (decrypt_db_data)<br>
+> 5 - Error decrypting the cipher hashed secret (get_plain_secret)<br>
+> 6 - Error decrypting the database Fernet key (decrypt_db_data)<br>
 
 -- utils.py --
-2 - User has exhausted maximum password attempts (sys_lock)<br>
-4 - Error decryption local database key (db_check)<br>
-7 - Error decrypting database data (decrypt_db_data)<br>
-8 - Error encrypting database data (encrypt_db_data)<br>
-9 - Maximum (3) consecutive IO errors occurred (file_handler)<br>
-10 - Error occurred writing to encrypted log file (write_log)<br>
+> 2 - User has exhausted maximum password attempts (sys_lock)<br>
+> 4 - Error decryption local database key (db_check)<br>
+> 7 - Error decrypting database data (decrypt_db_data)<br>
+> 8 - Error encrypting database data (encrypt_db_data)<br>
+> 9 - Maximum (3) consecutive IO errors occurred (file_handler)<br>
+> 10 - Error occurred writing to encrypted log file (write_log)<br>
