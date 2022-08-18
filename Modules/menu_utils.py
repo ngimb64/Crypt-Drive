@@ -254,7 +254,7 @@ def store_input(re_path) -> tuple:
         break
 
     if store_path == '':
-        store_path = global_vars.DIRS[3]
+        store_path = global_vars.DIRS[1]
 
     return store_path, prompt, prompt2
 

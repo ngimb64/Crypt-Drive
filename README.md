@@ -1,5 +1,5 @@
 # Crypt Drive
-![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
+![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.gif?raw=true)
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/Crypt_Drive.png?raw=true)
 
 &#9745;&#65039; Bandit verified<br>

@@ -28,7 +28,9 @@ from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-from winshell import undelete, x_not_found_in_recycle_bin
+# If OS is Windows #
+if os.name == 'nt':
+    from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
 import Modules.globals as global_vars
 
@@ -47,13 +49,13 @@ def cha_init(key: bytes, nonce: bytes) -> Cipher:
     return Cipher(algo, mode=None)
 
 
-def cha_decrypt(auth_obj: object, db_name: str) -> tuple:
+def cha_decrypt(auth_obj: object, db_name: str):
     """
     Retrieve ChaCha components from Keys db, decoding and decrypting them.
 
     :param auth_obj:  The authentication instance.
     :param db_name:  Keys database name.
-    :return:  The decrypted ChaCha20 key and nonce, print message on error.
+    :return:  The decrypted ChaCha20 key and nonce or prints message on error.
     """
     # Get the decrypted database key #
     db_key = get_database_comp(auth_obj)
@@ -589,8 +591,14 @@ def logger(msg: str, auth_obj: object, operation=None, handler=None):
     :param handler:  Logging level handler.
     :return:  Nothing
     """
-    log_name = f'{global_vars.CWD}\\cryptLog.log'
     text = None
+
+    # If OS is Windows #
+    if os.name == 'nt':
+        log_name = f'{global_vars.CWD}\\cryptLog.log'
+    # If OS is Linux #
+    else:
+        log_name = f'{global_vars.CWD}/cryptLog.log'
 
     # Decrypt the password #
     plain = auth_obj.get_plain_secret()

@@ -54,8 +54,8 @@ def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
     # Compile regex based on folder passed in #
     re_folder = re.compile(f'{re.escape(folder)}')
     # Compile regex for parsing out Documents from stored path #
-    re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\]{1,240}')
-    re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./]{1,240}')
+    re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\\-\'\"]{1,240}')
+    re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./\-\'\"]{1,240}')
 
     # Get username of currently logged-in user #
     usr = getuser()
@@ -147,11 +147,11 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
 
             # If OS is Linux #
             if os.name == 'nt':
-                rel_path = re.search(r'Documents\\[a-zA-Z\d._\\]{1,240}$', dir_path)
+                rel_path = re.search(r'Documents\\[a-zA-Z\d._\\\-\'\"]{1,240}$', dir_path)
                 curr_file = f'{dir_path}\\{file}'
             # If OS is Linux #
             else:
-                rel_path = re.search(r'Documents/[a-zA-Z\d._/]{1,240}$', dir_path)
+                rel_path = re.search(r'Documents/[a-zA-Z\d._/\-\'\"]{1,240}$', dir_path)
                 curr_file = f'{dir_path}/{file}'
 
             # If file contains extension with metadata #
@@ -195,17 +195,17 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
     if is_deleted == 'y':
         # Recursively delete leftover empty folders
         for dir_path, dir_names, _ in os.walk(path):
-            [os.rmdir(f'{dir_path}\\{folder}') if os.name == 'nt'
-             else os.rmdir(f'{dir_path}/{folder}') for folder in dir_names]
+            [rmtree(f'{dir_path}\\{folder}') if os.name == 'nt'
+             else rmtree(f'{dir_path}/{folder}') for folder in dir_names]
 
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
 
-def decryption(db_names: str, auth_obj: object, re_user, re_path):
+def decryption(db_name: str, auth_obj: object, re_user, re_path):
     """
     Decrypts data located on the file system.
 
-    :param db_names:  The database name tuple.
+    :param db_name:  The key's database name syntax.
     :param auth_obj:  The authentication instance.
     :param re_user:  Compiled regex to match input username.
     :param re_path:  Compiled regex to match input path.
@@ -225,12 +225,12 @@ def decryption(db_names: str, auth_obj: object, re_user, re_path):
     # Get the decrypted database key #
     db_key = get_database_comp(auth_obj)
     # Attempt to Retrieve the upload key and nonce from Keys db #
-    decrypt_call, nonce_call = fetch_upload_comps(db_names, user_key, user_nonce, auth_obj)
+    decrypt_call, nonce_call = fetch_upload_comps(db_name, user_key, user_nonce, auth_obj)
 
     # If decrypt key doesn't exist in db #
     if not decrypt_call or not nonce_call:
         return print_err('Database missing decrypt component .. exit and'
-                        ' restart program to fix issue', 2)
+                         ' restart program to fix issue', 2)
 
     # Decrypt key & nonce #
     decrypt_key = decrypt_db_data(db_key, decrypt_call[1])
@@ -320,7 +320,7 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
                 break
 
 
-def folder_upload(drive: object, parent_dir, dir_list: list, http: object, parent_id: str) -> str:
+def folder_upload(drive: object, parent_dir, dir_list: list, http: object, parent_id: str):
     """
     Recursively uploads folders to Drive.
 
