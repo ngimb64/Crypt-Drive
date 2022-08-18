@@ -1,9 +1,10 @@
 # Crypt Drive
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.png?raw=true)
+![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/Crypt_Drive.png?raw=true)
 
 &#9745;&#65039; Bandit verified<br>
 &#9745;&#65039; Synk verified<br>
-&#9745;&#65039; Pylint verified
+&#9745;&#65039; Pylint verified 9.91/10
 
 ## Prereqs
 Made for Windows and Linux, written in Python 3.9
@@ -239,21 +240,19 @@ the new key set to be able to decrypt it.
 > write_log &nbsp;-&nbsp; Parse new log message to old data and write encrypted result to log.
 
 ## Exit Codes
--- cryptDrive.py --
-
+-- crypt_drive.py --
 0 - Successful operation <br>
 1 - Error occurred during program startup <br>
-2 - User has exhausted maximum password attempts <br>
-3 - Error occurred decrypting keyring in startup <br>
+3 - Error occurred decrypting keyring in startup (password_input)<br>
 
--- AuthCrypt.py --
+-- auth_crypt.py --
+5 - Error decrypting the cipher hashed secret (get_plain_secret)<br>
+6 - Error decrypting the database Fernet key (decrypt_db_data)<br>
 
-4 - Error decrypting the cipher hashed secret <br>
-5 - Error decrypting the database Fernet key <br>
-
--- Utils.py --
-
-6 - Error decrypting database data <br>
-7 - Error encrypting database data <br>
-8 - Maximum (3) consecutive IO errors occurred <br>
-9 - Error occurred writing to encrypted log file <br>
+-- utils.py --
+2 - User has exhausted maximum password attempts (sys_lock)<br>
+4 - Error decryption local database key (db_check)<br>
+7 - Error decrypting database data (decrypt_db_data)<br>
+8 - Error encrypting database data (encrypt_db_data)<br>
+9 - Maximum (3) consecutive IO errors occurred (file_handler)<br>
+10 - Error occurred writing to encrypted log file (write_log)<br>

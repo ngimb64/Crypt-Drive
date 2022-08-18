@@ -31,7 +31,7 @@ def decrypt_input(re_user, re_path) -> tuple:
         break
 
     if local_path == '':
-        local_path = global_vars.DIRS[1]
+        local_path = global_vars.DIRS[3]
 
     return user, local_path
 
@@ -161,17 +161,16 @@ def meta_handler(file_path, folder_path: str, file: str) -> bool:
 
         # Strip all the metadata before storing #
         return meta_strip(curr_file)
-    # If in a recursive dir #
-    else:
-        # If OS is Windows #
-        if os.name == 'nt':
-            curr_file = f'{folder_path}\\{file_path}\\{file}'
-        # If OS is Linux #
-        else:
-            curr_file = f'{folder_path}/{file_path}/{file}'
 
-        # Strip all the metadata before storing #
-        return meta_strip(curr_file)
+    # If OS is Windows #
+    if os.name == 'nt':
+        curr_file = f'{folder_path}\\{file_path}\\{file}'
+    # If OS is Linux #
+    else:
+        curr_file = f'{folder_path}/{file_path}/{file}'
+
+    # Strip all the metadata before storing #
+    return meta_strip(curr_file)
 
 
 def share_input(re_email, re_phone, re_pass):
@@ -201,7 +200,7 @@ def share_input(re_email, re_phone, re_pass):
 
         # If invalid input was entered #
         if not re.search(re_pass, key_pass):
-            print_err('Invalid password format .. numbers, letters'
+            print_err('Invalid password format, enter at least 12 numbers, letters'
                       ' & _+$@&( special characters allowed', 2)
             continue
 

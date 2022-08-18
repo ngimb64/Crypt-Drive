@@ -39,7 +39,8 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
     # Clears screen per loop for clean display #
     while True:
-        # system_cmd(clear_syntax, None, None, 2)
+        system_cmd(clear_syntax, None, None, 2)
+        # Print the program banner #
         print(custom_fig.renderText('Crypt Drive'))
         print('''
     @==============@
@@ -178,7 +179,7 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
 
     while True:
         # Clear display #
-        # system_cmd(clear_syntax, None, None, 2)
+        system_cmd(clear_syntax, None, None, 2)
 
         # If user maxed attempts (3 sets of 3 failed password attempts) #
         if count == 12:
@@ -274,9 +275,8 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
 
 
 if __name__ == '__main__':
-    # Commands tuple #
+    # Command syntax and database tuple #
     cmds = ('cls', 'clear')
-    # Database & command tuples #
     dbs = ('crypt_keys', 'crypt_storage')
     # Current working directory #
     cwd = os.getcwd()

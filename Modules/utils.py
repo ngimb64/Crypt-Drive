@@ -181,7 +181,7 @@ def db_check(db_name: str, secret: bytes, auth_obj: object) -> object:
     # If authentication tag is invalid #
     except (InvalidTag, TypeError, ValueError):
         print_err('Incorrect unlock password entered', 2)
-        sys.exit(2)
+        sys.exit(4)
 
     # Encrypt the input password #
     crypt_secret = Fernet(secret_key).encrypt(secret)
@@ -244,7 +244,7 @@ def decrypt_db_data(decrypted_key: bytes, crypt_data: bytes) -> bytes:
     # If invalid token or encoding error #
     except (InvalidToken, TypeError, Error) as err:
         print_err(f'Error occurred during fernet data decryption: {err}', 2)
-        sys.exit(4)
+        sys.exit(7)
 
     # Return decrypted data #
     return plain_data
@@ -325,7 +325,7 @@ def encrypt_db_data(decrypted_key: bytes, plain_data: bytes) -> str:
     # If invalid token or encoding error #
     except (InvalidToken, TypeError, Error) as err:
         print_err(f'Error occurred during fernet data decryption: {err}', 2)
-        sys.exit(5)
+        sys.exit(8)
 
     # Return encrypted data in base64 format #
     return b64encode(crypt_data).decode()
@@ -436,7 +436,7 @@ def file_handler(filename: str, mode: str, auth_obj: object, operation=None, dat
             if count == 3:
                 print_err('Maximum consecutive File IO errors detected ..'
                          ' check log & contact support', None)
-                sys.exit(6)
+                sys.exit(9)
 
             time.sleep(sleep_time)
             count += 1
@@ -1108,4 +1108,4 @@ def write_log(log_name: str, db_key: bytes):
 
     except (IOError, OSError) as err:
         print_err(f'Error occurred writing {log_msg} to Logger:\n{err}', 2)
-        sys.exit(9)
+        sys.exit(10)

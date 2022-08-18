@@ -31,7 +31,7 @@ class AuthCrypt:
         # If invalid token or encoding error #
         except (binascii.Error, InvalidToken, TypeError, ValueError) as crypt_err:
             print_err(f'Error occurred during fernet secret decryption: {crypt_err}', 2)
-            sys.exit(3)
+            sys.exit(5)
 
         return plain
 
@@ -52,6 +52,6 @@ class AuthCrypt:
         # If authentication tag is invalid #
         except (InvalidTag, ValueError) as crypt_err:
             print_err(f'Database key did not successfully decrypt: {crypt_err}', 2)
-            sys.exit(4)
+            sys.exit(6)
 
         return plain
