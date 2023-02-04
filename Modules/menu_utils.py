@@ -4,7 +4,7 @@ import re
 from base64 import b64decode
 from pathlib import Path
 # Custom modules #
-import Modules.globals as global_vars
+import Modules.db_handlers as global_vars
 from Modules.utils import file_handler, meta_strip, print_err, query_handler
 
 

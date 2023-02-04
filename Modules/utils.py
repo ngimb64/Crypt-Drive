@@ -5,7 +5,6 @@ import errno
 import os
 import logging
 import re
-import shlex
 import shutil
 import smtplib
 import sqlite3
@@ -16,7 +15,6 @@ from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from subprocess import Popen, SubprocessError, TimeoutExpired, CalledProcessError
 from threading import BoundedSemaphore
 from sqlite3 import Error, DatabaseError, IntegrityError, ProgrammingError, OperationalError, \
                     NotSupportedError
@@ -32,7 +30,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 if os.name == 'nt':
     from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
-import Modules.globals as global_vars
+from Modules.db_handlers import db_contents, db_delete, db_insert, db_keys, db_retrieve, \
+                                db_storage, db_store
 
 
 def cha_init(key: bytes, nonce: bytes) -> Cipher:
@@ -90,17 +89,25 @@ class CompiledRegex:
     re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
 
 
-def component_handler(db_tuple: tuple, user_input: str, auth_obj: object) -> object:
+def component_handler(config_obj: object, user_input: str) -> object:
     """
     Creates various dir, db, and key components required for program operation.
 
-    :param db_tuple:  Database name tuple.
+    :param config_obj:  Program configuration instance.
     :param user_input:  User input secret.
-    :param auth_obj:  The authentication instance.
     :return:  Populated authentication instance.
     """
-    # Create any missing dirs #
-    create_dirs()
+    # Iterate through program folders #
+    for folder in config_obj.dirs:
+        # If current folder is missing #
+        if folder in config_obj.missing:
+            # Create missing folder #
+            folder.mkdir(parents=True, exist_ok=True)
+
+    # Iterate through the database in tuple and create them #
+    for db in config_obj.dbs:
+        pass
+
     # Create database components #
     create_databases(db_tuple)
     # Create fresh cryptographic key set #
@@ -1047,31 +1054,6 @@ def secure_delete(path: str, passes=5):
         print_err(f'Error overwriting file for secure delete: {err}', 2)
 
     os.remove(path)
-
-
-def system_cmd(cmd: str, stdout, stderr, exec_time: int):
-    """
-    Execute shell-escaped command.
-
-    :param cmd:  Command syntax to be executed.
-    :param stdout:  Standard output
-    :param stderr:  Standard error.
-    :param exec_time:  Execution timeout.
-    :return:  Nothing
-    """
-    # Shell-escape command syntax #
-    exe = shlex.quote(cmd)
-
-    # For built-in shell commands like (cls, clear) #
-    with Popen(exe, stdout=stdout, stderr=stderr, shell=True) as command:
-        try:
-            # Execute command with passed in timeout threshold #
-            command.communicate(timeout=exec_time)
-
-        # Handles process timeouts and errors #
-        except (SubprocessError, TimeoutExpired, CalledProcessError, OSError, ValueError):
-            command.kill()
-            command.communicate()
 
 
 def sys_lock():

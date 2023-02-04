@@ -1,26 +1,30 @@
 """ Built-in modules """
+import binascii
 import logging
 import os
 import re
 import sys
 import time
-from binascii import Error
 from getpass import getpass
+from io import StringIO
+from pathlib import Path
 # External Modules #
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
+from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
 # Custom Modules #
-from Modules.auth_crypt import AuthCrypt
-import Modules.globals as global_vars
+from Modules.db_handlers import db_contents, db_delete, db_insert, db_keys, db_retrieve, \
+                                db_storage, db_store
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
 from Modules.utils import CompiledRegex, component_handler, db_check, hd_crawl, logger, \
                           login_timeout, print_err, query_handler, recycle_check, secure_delete, \
-                          system_cmd, sys_lock
+                          sys_lock
 
 
 def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
@@ -39,7 +43,7 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
     # Clears screen per loop for clean display #
     while True:
-        system_cmd(clear_syntax, None, None, 2)
+        os.system(clear_syntax)
         # Print the program banner #
         print(custom_fig.renderText('Crypt Drive'))
         print('''
@@ -160,26 +164,20 @@ def start_check(db_name: str) -> bool:
     return True
 
 
-def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
+def password_input(conf_obj: object) -> object:
     """
     Receive password input from user, verify with Argon2 hashing algorithm or create new password \
     in none exist.
 
-    :param clear_syntax:  Command syntax tuple to clear display.
-    :param db_tuple:  Tuple containing database name syntax.
-    :param auth_obj:  The authentication instance.
-    :return:  Populated authentication instance.
+    :return:  Populated program configuration instance.
     """
     count = 0
-    # Compile path regex #
-    re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,40}')
-
     # Initialize password hashing algorithm #
     pass_algo = PasswordHasher()
 
+    # Clear display per iteration #
     while True:
-        # Clear display #
-        system_cmd(clear_syntax, None, None, 2)
+        os.system(conf_obj.clear_cmd)
 
         # If user maxed attempts (3 sets of 3 failed password attempts) #
         if count == 12:
@@ -195,7 +193,7 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
         prompt = getpass('\n\nEnter your unlock password or password for creating keys: ')
 
         # Check input syntax & length #
-        if not re.search(re_pass, prompt):
+        if not re.search(conf_obj.re_pass, prompt):
             print_err('Invalid password format .. minimum of 12 numbers,'
                      ' letters, _!+$@&( special characters needed', 2)
             count += 1
@@ -211,7 +209,7 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
             prompt2 = getpass('Enter password again to confirm: ')
 
             # If input fails regex validation #
-            if not re.search(re_pass, prompt2):
+            if not re.search(conf_obj.re_pass, prompt2):
                 print_err('Invalid password format .. numbers, letters,'
                          ' _!+$@&( special characters allowed', 2)
                 count += 1
@@ -224,40 +222,39 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
                 continue
 
             # Create dirs, dbs, and keys #
-            auth_obj = component_handler(db_tuple, prompt, auth_obj)
+            conf_obj = component_handler(conf_obj, prompt)
 
-            return auth_obj
+            return conf_obj
 
         # If password keyring exists, but component files are missing #
-        if not global_vars.HAS_KEYS:
+        if conf_obj.is_missing:
             print('\nCryptographic key-set seems to exist but is missing in '
                   'program directory .. attempting to recover components\n'
                   f'{"*" * 109}\n')
 
             # Attempt to recover missing components #
-            ret = start_check(db_tuple[1])
+            ret = start_check(conf_obj.dbs[1])
             # If unable to recover components essential to the key-set #
             if not ret:
                 print_err('Unable to recover all missing components .. recreating key-set', 2.5)
-
                 # Create dirs, dbs, and keys #
-                auth_obj = component_handler(db_tuple, prompt, auth_obj)
+                conf_obj = component_handler(conf_obj, prompt)
 
-                return auth_obj
+                return conf_obj
 
-            global_vars.HAS_KEYS = True
+            conf_obj.is_missing = False
 
         # Check for database contents and set auth object #
-        auth_obj = db_check(db_tuple[0], prompt.encode(), auth_obj)
+        conf_obj = db_check(db_tuple[0], prompt.encode(), conf_obj)
         # Decrypt the password #
-        check_pass = auth_obj.get_plain_secret()
+        check_pass = conf_obj.get_plain_secret()
 
         # Decrypt the keyring hash #
         try:
-            plain_keyring = Fernet(auth_obj.secret_key).decrypt(keyring_hash.encode())
+            plain_keyring = Fernet(conf_obj.secret_key).decrypt(keyring_hash.encode())
 
         # If error occurs during decryption #
-        except (InvalidToken, TypeError, Error) as fern_err:
+        except (InvalidToken, TypeError, binascii.Error) as fern_err:
             print_err(f'Error occurred during fernet secret decryption: {fern_err}', 2)
             sys.exit(3)
 
@@ -271,37 +268,115 @@ def password_input(clear_syntax: str, db_tuple: tuple, auth_obj) -> object:
             count += 1
             continue
 
-        return auth_obj
+        return conf_obj
+
+
+class ProgramConfig:
+    """
+    Configuration class to hold program compiled regex, paths, and other related components.
+    """
+    def __init__(self):
+        # If OS is Windows #
+        if os.name == 'nt':
+            self.clear_cmd = 'cls'
+        # If OS is Linux #
+        else:
+            self.clear_cmd = 'clear'
+
+        # Compile program regex #
+        self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,40}')
+
+        # Command syntax and database tuple #
+        self.dbs = ('crypt_keys', 'crypt_storage')
+        self.db_conns = []
+        # Current working directory #
+        self.cwd = Path.cwd()
+        # Create string IO object for logging #
+        self.LOG_STREAM = StringIO()
+        # Configure program directories #
+        self.dirs = (self.cwd / 'CryptDbs', self.cwd / 'CryptImport', self.cwd / 'CryptKeys',
+                     self.cwd / 'DecryptDock', self.cwd / 'UploadDock')
+        # Configure program database #
+        self.dbs = (self.cwd / 'CryptDbs' / 'crypt_keys.db',
+                    self.cwd / 'CryptDbs' / 'crypt_storage.db')
+        # Configure program file paths #
+        self.files = (self.cwd / 'CryptKeys' / 'aesgcm.txt',
+                      self.cwd / 'CryptKeys' / 'nonce.txt',
+                      self.cwd / 'CryptKeys' / 'db_crypt.txt',
+                      self.cwd / 'CryptKeys' / 'secret_key.txt')
+        # List to reference missing program components #
+        self.missing = []
+
+        # Iterate through the program dirs, dbs, and files #
+        for item in (self.dirs + self.dbs + self.files):
+            # If the current item does not exit #
+            if not item.exists():
+                # Add current item to missing list #
+                self.missing.append(item)
+
+        # If the program is missing components #
+        if self.missing:
+            self.is_missing = True
+        # If all components are present #
+        else:
+            self.is_missing = False
+
+        # Program cryptographic components #
+        self.aesccm = b''
+        self.nonce = b''
+        self.db_key = b''
+        self.secret_key = b''
+        self.password = b''
+
+    def get_plain_secret(self) -> bytes:
+        """
+        Decrypt the encrypted hash secret.
+
+        :return:  Decrypted password hash.
+        """
+        try:
+            # Decrypt hashed secret #
+            plain = Fernet(self.secret_key).decrypt(self.password)
+
+        # If invalid token or encoding error #
+        except (binascii.Error, InvalidToken, TypeError, ValueError) as crypt_err:
+            print_err(f'Error occurred during fernet secret decryption: {crypt_err}', 2)
+            sys.exit(5)
+
+        return plain
+
+    def decrypt_db_key(self, secret: str) -> bytes:
+        """
+        Decrypt the database key with aesccm authenticated.
+
+        :param secret:  Encrypted password hash to be decrypted.
+        :return:  Decrypted database key.
+        """
+        # Initialize AESCCM algo object #
+        aesccm = AESCCM(self.aesccm)
+
+        try:
+            # Decrypt database Fernet key #
+            plain = aesccm.decrypt(self.nonce, self.db_key, secret)
+
+        # If authentication tag is invalid #
+        except (InvalidTag, ValueError) as crypt_err:
+            print_err(f'Database key did not successfully decrypt: {crypt_err}', 2)
+            sys.exit(6)
+
+        return plain
 
 
 if __name__ == '__main__':
-    # Command syntax and database tuple #
-    cmds = ('cls', 'clear')
-    dbs = ('crypt_keys', 'crypt_storage')
-    # Current working directory #
-    cwd = os.getcwd()
-
-    # If OS is Windows #
-    if os.name == 'nt':
-        CMD = cmds[0]
-    # If OS is Linux #
-    else:
-        CMD = cmds[1]
-
     try:
-        # Initialize AuthCrypt instance #
-        auth = AuthCrypt()
-
-        # Initialize global variables and
-        # check if components exist #
-        global_vars.initialize(cwd)
-
+        # Initialize the program configuration class #
+        config_obj = ProgramConfig()
         # User password authentication login #
-        auth = password_input(CMD, dbs, auth)
-
+        config_obj = password_input(config_obj)
         # Initialize logging facilities #
-        logging.basicConfig(level=logging.ERROR, stream=global_vars.LOG_STREAM,
-                            format='%(asctime)s %(levelname)s:%(message)s')
+        logging.basicConfig(format='%(asctime)s %(lineno)4d@%(filename)-19s[%(levelname)s]>>  '
+                                   '%(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG,
+                                    stream=config_obj.LOG_STREAM)
 
     # If keyboard interrupt is detected #
     except KeyboardInterrupt:
@@ -325,7 +400,7 @@ if __name__ == '__main__':
         # If unknown exception occurs #
         except Exception as err:
             print_err('Unexpected exception occurred .. check log', 2)
-            logger(f'Exception occurred: {err}\n\n', auth, operation='write', handler='exception')
+            logger(f'Exception occurred: {err}', auth, operation='write', handler='exception')
             continue
 
     sys.exit(0)

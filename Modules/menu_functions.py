@@ -11,7 +11,7 @@ from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
-import Modules.globals as global_vars
+import Modules.db_handlers as global_vars
 from Modules.menu_utils import upload_dir_handler, decrypt_input, extract_input, extract_parse, \
                                import_input, meta_handler, share_input, store_input, \
                                upload_extract, upload_input, upload_stage
