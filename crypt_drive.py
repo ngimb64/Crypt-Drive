@@ -18,13 +18,12 @@ from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
 # Custom Modules #
-from Modules.db_handlers import db_contents, db_delete, db_insert, db_keys, db_retrieve, \
-                                db_storage, db_store
+from Modules.db_handlers import db_contents, db_delete, key_insert, db_keys, db_retrieve, \
+                                db_storage, data_insert
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
-from Modules.utils import CompiledRegex, component_handler, db_check, hd_crawl, logger, \
-                          login_timeout, print_err, query_handler, recycle_check, secure_delete, \
-                          sys_lock
+from Modules.utils import component_handler, db_check, hd_crawl, logger, login_timeout, print_err, \
+                          query_handler, recycle_check, secure_delete, sys_lock
 
 
 def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
@@ -70,7 +69,7 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
         # Store data in storage database #
         elif prompt == 'store':
-            db_store(db_tuple, auth_obj, regex_obj.re_path)
+            data_insert(db_tuple, auth_obj, regex_obj.re_path)
 
         # Extract data from storage db #
         elif prompt == 'extract':
@@ -227,7 +226,7 @@ def password_input(conf_obj: object) -> object:
             return conf_obj
 
         # If password keyring exists, but component files are missing #
-        if conf_obj.is_missing:
+        if conf_obj.missing:
             print('\nCryptographic key-set seems to exist but is missing in '
                   'program directory .. attempting to recover components\n'
                   f'{"*" * 109}\n')
@@ -242,10 +241,10 @@ def password_input(conf_obj: object) -> object:
 
                 return conf_obj
 
-            conf_obj.is_missing = False
+            conf_obj.missing = []
 
         # Check for database contents and set auth object #
-        conf_obj = db_check(db_tuple[0], prompt.encode(), conf_obj)
+        conf_obj = db_check(conf_obj.dbs[0], prompt.encode(), conf_obj)
         # Decrypt the password #
         check_pass = conf_obj.get_plain_secret()
 
@@ -279,47 +278,47 @@ class ProgramConfig:
         # If OS is Windows #
         if os.name == 'nt':
             self.clear_cmd = 'cls'
+            self.re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
         # If OS is Linux #
         else:
             self.clear_cmd = 'clear'
+            self.re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
 
         # Compile program regex #
         self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,40}')
+        self.re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
+        self.re_user = re.compile(r'^[a-zA-Z\d._]{1,30}')
+        self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
+        self.re_phone = re.compile(r'^\d{10}')
+        self.re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
 
-        # Command syntax and database tuple #
-        self.dbs = ('crypt_keys', 'crypt_storage')
-        self.db_conns = []
-        # Current working directory #
-        self.cwd = Path.cwd()
         # Create string IO object for logging #
         self.LOG_STREAM = StringIO()
+        # Current working directory #
+        self.cwd = Path.cwd()
         # Configure program directories #
-        self.dirs = (self.cwd / 'CryptDbs', self.cwd / 'CryptImport', self.cwd / 'CryptKeys',
-                     self.cwd / 'DecryptDock', self.cwd / 'UploadDock')
-        # Configure program database #
-        self.dbs = (self.cwd / 'CryptDbs' / 'crypt_keys.db',
-                    self.cwd / 'CryptDbs' / 'crypt_storage.db')
+        self.dirs = (self.cwd / 'CryptDbs',
+                     self.cwd / 'CryptImport',
+                     self.cwd / 'CryptKeys',
+                     self.cwd / 'DecryptDock',
+                     self.cwd / 'UploadDock')
+        # Command syntax and database tuple #
+        self.db_name = self.dirs[0] / 'crypt_storage.db'
+        self.db_tables = ('crypt_keys', 'crypt_storage')
         # Configure program file paths #
-        self.files = (self.cwd / 'CryptKeys' / 'aesgcm.txt',
-                      self.cwd / 'CryptKeys' / 'nonce.txt',
-                      self.cwd / 'CryptKeys' / 'db_crypt.txt',
-                      self.cwd / 'CryptKeys' / 'secret_key.txt')
+        self.files = (self.dirs[2] / 'aesgcm.txt',
+                      self.dirs[2] / 'nonce.txt',
+                      self.dirs[2] / 'db_crypt.txt',
+                      self.dirs[2] / 'secret_key.txt')
         # List to reference missing program components #
         self.missing = []
 
         # Iterate through the program dirs, dbs, and files #
-        for item in (self.dirs + self.dbs + self.files):
+        for item in (self.dirs + self.files):
             # If the current item does not exit #
             if not item.exists():
                 # Add current item to missing list #
                 self.missing.append(item)
-
-        # If the program is missing components #
-        if self.missing:
-            self.is_missing = True
-        # If all components are present #
-        else:
-            self.is_missing = False
 
         # Program cryptographic components #
         self.aesccm = b''

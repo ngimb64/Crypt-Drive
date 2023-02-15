@@ -30,8 +30,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 if os.name == 'nt':
     from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
-from Modules.db_handlers import db_contents, db_delete, db_insert, db_keys, db_retrieve, \
-                                db_storage, db_store
+from Modules.db_handlers import DbConnectionHandler,  db_contents, db_create, db_delete, \
+                                db_error_query, key_insert, db_retrieve, data_insert, query_handler
 
 
 def cha_init(key: bytes, nonce: bytes) -> Cipher:
@@ -73,22 +73,6 @@ def cha_decrypt(auth_obj: object, db_name: str):
     return decrypt_key, decrypt_nonce
 
 
-class CompiledRegex:
-    """ Class for grouping numerous compiled regex. """
-    # If OS is Windows #
-    if os.name == 'nt':
-        re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
-    # If OS is Linux #
-    else:
-        re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
-
-    re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
-    re_user = re.compile(r'^[a-zA-Z\d._]{1,30}')
-    re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
-    re_phone = re.compile(r'^\d{10}')
-    re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
-
-
 def component_handler(config_obj: object, user_input: str) -> object:
     """
     Creates various dir, db, and key components required for program operation.
@@ -104,14 +88,34 @@ def component_handler(config_obj: object, user_input: str) -> object:
             # Create missing folder #
             folder.mkdir(parents=True, exist_ok=True)
 
-    # Iterate through the database in tuple and create them #
-    for db in config_obj.dbs:
-        pass
+    max_conns = 1
+    # Initialize semaphore lock to max allowed connections #
+    sema_lock = BoundedSemaphore(value=max_conns)
 
-    # Create database components #
-    create_databases(db_tuple)
+    try:
+        # Acquire semaphore lock in context manager #
+        with sema_lock:
+            try:
+                # Connect to program database in context manager #
+                with DbConnectionHandler(config_obj.db_name) as db_conn:
+                    # Get query to create database tables #
+                    create_query = db_create(config_obj.db_tables)
+                    # Execute creation query #
+                    query_handler(db_conn, create_query, exec_script=True)
+
+            # If database error occurs #
+            except sqlite3.Error as db_err:
+                db_error_query(db_err)
+                sys.exit(3)
+
+    # If error occurs acquiring semaphore lock #
+    except ValueError:
+        print_err('Semaphore error occurred attempting to acquire a database connection', 2)
+        sys.exit(3)
+
+    # TODO: continue here
     # Create fresh cryptographic key set #
-    return make_keys(db_tuple[0], user_input.encode(), auth_obj)
+    return make_keys(config_obj.db_tables[0], user_input.encode(), auth_obj)
 
 
 def create_databases(dbs: tuple):
@@ -131,20 +135,6 @@ def create_databases(dbs: tuple):
             continue
 
         query_handler(db_name, query, None, operation='create')
-
-
-def create_dirs():
-    """
-    Creates program component directories.
-
-    :return:  Nothing
-    """
-    # Iterate through folders #
-    for directory in global_vars.DIRS:
-        # If folder is missing #
-        if directory in global_vars.MISSING:
-            # Create missing folder #
-            os.mkdir(directory)
 
 
 def data_copy(source: str, dest: str):
@@ -584,7 +574,7 @@ def key_recreate(db_key: bytes, key_size: int, db_name: str, store_comp: str):
     encoded_comp = b64encode(crypt_comp)
 
     # Send upload key to key database #
-    query = global_vars.db_insert(db_name, store_comp, encoded_comp.decode('utf-8'))
+    query = global_vars.key_insert(db_name, store_comp, encoded_comp.decode('utf-8'))
     query_handler(db_name, query, None)
 
 
@@ -758,11 +748,11 @@ def make_keys(db_names: str, password: bytes, auth_obj: object) -> object:
     auth_obj.password = crypt_hash
 
     # Send encrypted ChaCha20 key to key's database #
-    query = global_vars.db_insert(db_names, 'upload_key', upload_key.decode('utf-8'))
+    query = global_vars.key_insert(db_names, 'upload_key', upload_key.decode('utf-8'))
     query_handler(db_names, query, None)
 
     # Send encrypted ChaCha20 nonce to keys database #
-    query = global_vars.db_insert(db_names, 'upload_nonce', cha_nonce.decode('utf-8'))
+    query = global_vars.key_insert(db_names, 'upload_nonce', cha_nonce.decode('utf-8'))
     query_handler(db_names, query, None)
 
     # Write AESCCM key and nonce to files #
@@ -1073,7 +1063,7 @@ def sys_lock():
     # If OS is Linux #
     else:
         # Turn off the system #
-        system_cmd('poweroff -p', None, None, 2)
+        os.system('poweroff -p')
 
     # Exit when unlocked or poweroff fails #
     sys.exit(2)

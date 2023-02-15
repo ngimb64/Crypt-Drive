@@ -182,7 +182,7 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
                 relative_path = None
 
             # Path is stored like "Documents\path\to\folder", file is stored as the name #
-            query = global_vars.db_store(dbs[1], file, relative_path, data)
+            query = global_vars.data_insert(dbs[1], file, relative_path, data)
             query_handler(dbs[1], query, auth_obj)
 
             print(f'File: {file}')
@@ -440,11 +440,11 @@ def import_key(db_names: str, auth_obj: object, re_user, re_pass):
     upload_nonce = encrypt_db_data(db_key, user_nonce)
 
     # Send users decrypt key to key database #
-    query = global_vars.db_insert(db_names, f'{user}_decrypt', upload_key)
+    query = global_vars.key_insert(db_names, f'{user}_decrypt', upload_key)
     query_handler(db_names, query, auth_obj)
 
     # Send users nonce to database #
-    query = global_vars.db_insert(db_names, f'{user}_nonce', upload_nonce)
+    query = global_vars.key_insert(db_names, f'{user}_nonce', upload_nonce)
     query_handler(db_names, query, auth_obj)
 
     # Delete file in Import dir #

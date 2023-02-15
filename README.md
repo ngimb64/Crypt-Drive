@@ -161,14 +161,10 @@ the new key set to be able to decrypt it.
 
 > cha_decrypt &nbsp;-&nbsp; Retrieve ChaCha components from Keys db, decoding and decrypting them.
 
-> CompiledRegex &nbsp;-&nbsp; Class for grouping numerous compiled regex.
-
 > component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
 > operation.
 
 > create_databases &nbsp;-&nbsp; Creates database components.
-
-> create_dirs &nbsp;-&nbsp; Creates program component directories.
 
 > data_copy &nbsp;-&nbsp; Copies data from source to destination.
 

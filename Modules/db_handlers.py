@@ -6,28 +6,22 @@ import sys
 from Modules.utils import print_err
 
 
-def db_keys(db_name: str) -> str:
-    """
-    Format MySQL query for Keys database table creation.
+def db_create(db_tuple: tuple) -> str:
+    return f''' 
+            CREATE TABLE IF NOT EXISTS {db_tuple[0]} (
+                name VARCHAR(20) PRIMARY KEY NOT NULL,
+                data TINYTEXT NOT NULL
+            );
 
-    :param db_name:  The name of the database where the table is created.
-    :return:  Formatted MySQL query.
-    """
-    return f'CREATE TABLE {db_name}(name VARCHAR(20) PRIMARY KEY NOT NULL, data TINYTEXT NOT NULL);'
-
-
-def db_storage(db_name: str) -> str:
-    """
-    Format MySQL query for Storage database table creation.
-
-    :param db_name:  The name of the database where the table is created.
-    :return:  Formatted MySQL query.
-    """
-    return f'CREATE TABLE {db_name}(name VARCHAR(20) PRIMARY KEY NOT NULL, path TINYTEXT NOT NULL' \
-            ', data LONGTEXT NOT NULL);'
+            CREATE TABLE IF NOT EXISTS {db_tuple[1]} (
+                name VARCHAR(40) PRIMARY KEY NOT NULL,
+                path TINYTEXT NOT NULL,
+                data LONGTEXT NOT NULL
+            );
+    '''
 
 
-def db_insert(db_name: str) -> str:
+def key_insert(db_name: str) -> str:
     """
     Format MySQL query to insert keys in the keys database.
 
@@ -37,7 +31,7 @@ def db_insert(db_name: str) -> str:
     return f'INSERT INTO {db_name} (name, data) VALUES (?,?);'
 
 
-def db_store(db_name: str) -> str:
+def data_insert(db_name: str) -> str:
     """
     Format MySQL query to insert data into the storage database.
 
