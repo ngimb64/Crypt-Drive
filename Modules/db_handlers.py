@@ -3,7 +3,7 @@ import logging
 import sqlite3
 import sys
 # Custom modules #
-from Modules.utils import print_err
+from Modules.utils import logger, print_err
 
 
 def db_create(db_tuple: tuple) -> str:
@@ -103,7 +103,7 @@ class DbConnectionHandler:
         self.connection.close()
 
 
-def query_handler(connection, query, *args, exec_script=None, fetch=None):
+def query_handler(conf: object, connection, query, *args, exec_script=None, fetch=None):
     """
     Database handler to handler various db calls with session locking and error handling.
 
@@ -121,95 +121,107 @@ def query_handler(connection, query, *args, exec_script=None, fetch=None):
         print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
         sys.exit(3)
 
-    # Connection context manager auto-handles commits/rollbacks #
-    with connection:
-        # If query is one-liner #
-        if not exec_script:
-            # If no args to be parsed into query #
-            if not args:
-                # Execute SQL query #
-                db_call = connection.execute(query)
-            # If args are to be parsed into query #
+    try:
+        # Connection context manager auto-handles commits/rollbacks #
+        with connection:
+            # If query is one-liner #
+            if not exec_script:
+                # If no args to be parsed into query #
+                if not args:
+                    # Execute SQL query #
+                    db_call = connection.execute(query)
+                # If args are to be parsed into query #
+                else:
+                    # Execute SQL query #
+                    db_call = connection.execute(query, args)
+
+            # If query is multi-liner script #
             else:
-                # Execute SQL query #
-                db_call = connection.execute(query, args)
+                # Execute SQL script #
+                db_call = connection.executescript(query)
 
-        # If query is multi-liner script #
-        else:
-            # Execute SQL script #
-            db_call = connection.executescript(query)
+            # If the fetch flag is set to "one" #
+            if fetch == 'one':
+                # Return fetched row #
+                return db_call.fetchone()
 
-        # If the fetch flag is set to "one" #
-        if fetch == 'one':
-            # Return fetched row #
-            return db_call.fetchone()
+            # If the fetch flag is set to "all" #
+            elif fetch == 'all':
+                # Return all fetched rows #
+                return db_call.fetchall()
 
-        # If the fetch flag is set to "all" #
-        elif fetch == 'all':
-            # Return all fetched rows #
-            return db_call.fetchall()
+            # If the fetch flag is at default "None" #
+            elif not fetch:
+                return None
 
-        # If the fetch flag is at default "None" #
-        elif not fetch:
-            return None
+            # If the fetch flag has been set to unknown value #
+            else:
+                print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
+                logger(conf, f'Fetch flag is set to unexpected value: {fetch}',
+                       operation='write', handler='error')
+                sys.exit(4)
 
-        # If the fetch flag has been set to unknown value #
-        else:
-            print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
-            logging.error('Fetch flag is set to unexpected value: %s', fetch)
-            sys.exit(4)
+    # If error occurs during database operation #
+    except sqlite3.Error as db_err:
+        # Lookup precise database error #
+        db_error_query(conf, db_err)
 
 
-def db_error_query(db_error: object):
+def db_error_query(conf_obj: object, db_error: object):
     """
-    Looks up the exact error raised by database error catch-all handler.
+    Looks up the exact error raised by database error catch-all handler, prints and logs.
 
+    :param conf_obj: The program configuration instance.
     :param db_error:  The database error that occurred to be looked-up.
     :return:  Nothing
     """
-    # TODO: tie logging into project custom encrypted logging system
     # If query is not a string or multiple queries are passed to execute() #
     if db_error == sqlite3.Warning:
         print_err(f'Db sqlite warning: {db_error}', None)
-        logging.warning('Db sqlite3 warning: %s', db_error)
+        logger(conf_obj, f'Db sqlite3 warning: {db_error}', operation='write', handler='error')
 
     # If error occurs during fetch across rollback or is unable to bind parameters #
     elif db_error == sqlite3.InterfaceError:
         print_err(f'Db interface error: {db_error}', None)
-        logging.error('Db interface error: %s', db_error)
+        logger(conf_obj, f'Db interface error: {db_error}', operation='write', handler='error')
 
     # If data-related error occurs, such as number out of range and overflowed strings #
     elif db_error == sqlite3.DataError:
         print_err(f'Db data-related error: {db_error}', None)
-        logging.error('Db data-related error: %s', db_error)
+        logger(conf_obj, f'Db data-related error: {db_error}', operation='write', handler='error')
 
     # If database operation error occurs, such as a database path not being found or the failed
     # processing of a transaction #
     elif db_error == sqlite3.OperationalError:
         print_err(f'Db operational error: {db_error}', None)
-        logging.error('Db operational error: %s', db_error)
+        logger(conf_obj, f'Db operational error: {db_error}', operation='write', handler='error')
 
     # If database relational integrity is affected #
     elif db_error == sqlite3.IntegrityError:
         print_err(f'Db relational integrity error: {db_error}', None)
-        logging.error('Db relational integrity error: %s', db_error)
+        logger(conf_obj, f'Db relational integrity error: {db_error}', operation='write',
+               handler='error')
 
     # If sqlite3 internal error occurs, suggesting a potential runtime library issue #
     elif db_error == sqlite3.InternalError:
         print_err(f'Db sqlite3 internal runtime error: {db_error}', None)
-        logging.error('Db sqlite3 internal runtime error: %s', db_error)
+        logger(conf_obj, f'Db sqlite3 internal runtime error: {db_error}', operation='write',
+               handler='error')
 
     # If sqlite3 API error occurs, such as trying to operate on a closed connection #
     elif db_error == sqlite3.ProgrammingError:
         print_err(f'Db sqlite3 API operational error: {db_error}', None)
-        logging.error('Db sqlite3 APi operational error: %s', db_error)
+        logger(conf_obj, f'Db sqlite3 APi operational error: {db_error}', operation='write',
+               handler='error')
 
     # If a called API method is not supported by the underlying SQLite3 runtime library #
     elif db_error == sqlite3.NotSupportedError:
         print_err(f'Db API not supported by sqlite3 runtime library: {db_error}', None)
-        logging.error('Db API not supported by sqlite3 runtime library: %s', db_error)
+        logger(conf_obj, f'Db API not supported by sqlite3 runtime library: {db_error}',
+               operation='write', handler='error')
 
     # If unexpected error occurs (shouldn't happen, just in case) #
     else:
         print_err(f'Unexpected database exception: {db_error}', None)
-        logging.exception('Unexpected database exception: %s', db_error)
+        logger(conf_obj, f'Unexpected database exception: {db_error}', operation='write',
+               handler='error')

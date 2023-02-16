@@ -164,8 +164,6 @@ the new key set to be able to decrypt it.
 > component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
 > operation.
 
-> create_databases &nbsp;-&nbsp; Creates database components.
-
 > data_copy &nbsp;-&nbsp; Copies data from source to destination.
 
 > db_check &nbsp;-&nbsp; Checks the upload contents within the keys database and populates 

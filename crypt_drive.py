@@ -8,6 +8,7 @@ import time
 from getpass import getpass
 from io import StringIO
 from pathlib import Path
+from threading import BoundedSemaphore
 # External Modules #
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
@@ -18,31 +19,26 @@ from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
 # Custom Modules #
-from Modules.db_handlers import db_contents, db_delete, key_insert, db_keys, db_retrieve, \
-                                db_storage, data_insert
+from Modules.db_handlers import DbConnectionHandler
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
 from Modules.utils import component_handler, db_check, hd_crawl, logger, login_timeout, print_err, \
-                          query_handler, recycle_check, secure_delete, sys_lock
+                          recycle_check, secure_delete, sys_lock
 
 
-def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
+def main_menu(config: object):
     """
     Display command options and receives input on what command to execute.
 
-    :param db_tuple:  The database name tuple.
-    :param auth_obj:  The authentication instance.
-    :param clear_syntax:  The command syntax to clear display.
+    :param config:  The program configuration instance.
     :return:  Nothing
     """
-    # Compile various regexes as grouped instance #
-    regex_obj = CompiledRegex()
     # Format program banner #
     custom_fig = Figlet(font='roman', width=100)
 
     # Clears screen per loop for clean display #
     while True:
-        os.system(clear_syntax)
+        os.system(config.clear_cmd)
         # Print the program banner #
         print(custom_fig.renderText('Crypt Drive'))
         print('''
@@ -65,15 +61,15 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
         # Upload encrypted data #
         if prompt == 'upload':
-            upload(db_tuple, auth_obj, regex_obj.re_path)
+            upload(config)
 
         # Store data in storage database #
         elif prompt == 'store':
-            data_insert(db_tuple, auth_obj, regex_obj.re_path)
+            db_store(config)
 
         # Extract data from storage db #
         elif prompt == 'extract':
-            db_extract(db_tuple, auth_obj, regex_obj.re_path, regex_obj.re_dir)
+            db_extract(config)
 
         # List cloud contents #
         elif prompt == 'ldrive':
@@ -81,20 +77,19 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
         # List storage database contents #
         elif prompt == 'lstore':
-            list_storage(db_tuple[1], auth_obj)
+            list_storage(config)
 
         # Import public key #
         elif prompt == 'import':
-            import_key(db_tuple[0], auth_obj, regex_obj.re_user, regex_obj.re_pass)
+            import_key(config)
 
         # Decrypt data in DecryptDock
         elif prompt == 'decrypt':
-            decryption(db_tuple[0], auth_obj, regex_obj.re_user, regex_obj.re_path)
+            decryption(config)
 
         # Share private key with user #
         elif prompt == 'share':
-            key_share(db_tuple[0], auth_obj, regex_obj.re_email,
-                      regex_obj.re_pass, regex_obj.re_phone)
+            key_share(config)
 
         # Exit the program #
         elif prompt == 'exit':
@@ -103,7 +98,7 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
 
         # View the encrypted error log #
         elif prompt == 'view':
-            logger(None, auth_obj, operation='read', handler=None)
+            logger(config, None, operation='read', handler=None)
 
         # Improper input handling #
         else:
@@ -112,50 +107,44 @@ def main_menu(db_tuple: tuple, auth_obj, clear_syntax: str):
         time.sleep(2.5)
 
 
-def start_check(db_name: str) -> bool:
+def start_check(config: object) -> bool:
     """
     Confirms program components are preset. If missing, component recovery is attempted. If that \
     fails results in the creation of a fresh set of components.
 
-    :param db_name:  The storage database query syntax.
+    :param config:  The program configuration instance.
     :return:  True/False boolean toggle on success/failure.
     """
     # If OS is Windows #
     if os.name == 'nt':
         # Check the recycling bin for missing items #
-        misses = recycle_check()
+        misses = recycle_check(config)
 
         # If all items were recovered #
         if not misses:
             return True
     # If OS is Linux #
     else:
-        misses = global_vars.MISSING
+        misses = config.missing
 
     # Attempt to recover list of missing items from hard drive #
-    failures = hd_crawl(misses)
+    failures = hd_crawl(config, misses)
 
     # If hard drive recovery was not successful #
     if failures:
         # For component in list of failures #
         for fail in failures:
-            # If component is in independent of key-set #
-            if fail in (global_vars.DIRS[1], global_vars.DIRS[2],
-                        global_vars.DIRS[4], global_vars.DBS[1]):
-                # If fail item is folder #
-                if fail in global_vars.DIRS:
-                    # Create folder #
-                    os.mkdir(fail)
-                # If fail item is storage db #
-                else:
-                    # Create storage database #
-                    query = global_vars.db_storage(db_name)
-                    query_handler(db_name, query, None, operation='create')
-            # If component is in the essential key-set #
+            # If component is in independent of database & key-set #
+            if fail in (config.dirs[1], config.dirs[3], config.dirs[4]):
+                # Create folder #
+                fail.mkdir(fail, parents=True)
+            # If component is a essential component #
             else:
                 # Delete component files #
-                for item in global_vars.FILES + global_vars.DBS:
-                    if global_vars.file_check(item):
+                for item in (config.files + config.db_name):
+                    # If the current item exists #
+                    if item.exists():
+                        # Delete it #
                         secure_delete(item)
 
                 return False
@@ -220,23 +209,22 @@ def password_input(conf_obj: object) -> object:
                 count += 1
                 continue
 
-            # Create dirs, dbs, and keys #
+            # Create dirs, db tables, and keys #
             conf_obj = component_handler(conf_obj, prompt)
 
             return conf_obj
 
         # If password keyring exists, but component files are missing #
         if conf_obj.missing:
-            print('\nCryptographic key-set seems to exist but is missing in '
-                  'program directory .. attempting to recover components\n'
-                  f'{"*" * 109}\n')
+            print('\nCryptographic key-set seems to exist but is missing in program directory .. '
+                  f'attempting to recover components\n{"*" * 109}\n')
 
             # Attempt to recover missing components #
             ret = start_check(conf_obj.dbs[1])
             # If unable to recover components essential to the key-set #
             if not ret:
                 print_err('Unable to recover all missing components .. recreating key-set', 2.5)
-                # Create dirs, dbs, and keys #
+                # Create dirs, db tables, and keys #
                 conf_obj = component_handler(conf_obj, prompt)
 
                 return conf_obj
@@ -244,7 +232,7 @@ def password_input(conf_obj: object) -> object:
             conf_obj.missing = []
 
         # Check for database contents and set auth object #
-        conf_obj = db_check(conf_obj.dbs[0], prompt.encode(), conf_obj)
+        conf_obj = db_check(conf_obj, conf_obj.dbs[0], prompt.encode())
         # Decrypt the password #
         check_pass = conf_obj.get_plain_secret()
 
@@ -291,9 +279,11 @@ class ProgramConfig:
         self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
         self.re_phone = re.compile(r'^\d{10}')
         self.re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
+        self.re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
+        self.re_win_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
 
         # Create string IO object for logging #
-        self.LOG_STREAM = StringIO()
+        self.log_stream = StringIO()
         # Current working directory #
         self.cwd = Path.cwd()
         # Configure program directories #
@@ -305,16 +295,20 @@ class ProgramConfig:
         # Command syntax and database tuple #
         self.db_name = self.dirs[0] / 'crypt_storage.db'
         self.db_tables = ('crypt_keys', 'crypt_storage')
+        # Database access semaphore and connection reference #
+        self.sema_lock = BoundedSemaphore(value=1)
+        self.db_conn = None
         # Configure program file paths #
         self.files = (self.dirs[2] / 'aesgcm.txt',
                       self.dirs[2] / 'nonce.txt',
                       self.dirs[2] / 'db_crypt.txt',
                       self.dirs[2] / 'secret_key.txt')
+        self.log_name = self.cwd / 'crypt_log.log'
         # List to reference missing program components #
         self.missing = []
 
         # Iterate through the program dirs, dbs, and files #
-        for item in (self.dirs + self.files):
+        for item in (self.dirs + self.db_name + self.files):
             # If the current item does not exit #
             if not item.exists():
                 # Add current item to missing list #
@@ -326,6 +320,7 @@ class ProgramConfig:
         self.db_key = b''
         self.secret_key = b''
         self.password = b''
+        self.has_keys = False
 
     def get_plain_secret(self) -> bytes:
         """
@@ -375,7 +370,7 @@ if __name__ == '__main__':
         # Initialize logging facilities #
         logging.basicConfig(format='%(asctime)s %(lineno)4d@%(filename)-19s[%(levelname)s]>>  '
                                    '%(message)s', datefmt='%Y-%m-%d %H:%M:%S', level=logging.DEBUG,
-                                    stream=config_obj.LOG_STREAM)
+                                    stream=config_obj.log_stream)
 
     # If keyboard interrupt is detected #
     except KeyboardInterrupt:
@@ -390,16 +385,30 @@ if __name__ == '__main__':
     # Main menu exception handled loop #
     while True:
         try:
-            main_menu(dbs, auth, CMD)
+            # Acquire semaphore lock for db access #
+            with config_obj.sema_lock:
+                # Establish database connection in context manager #
+                with DbConnectionHandler(config_obj.db_name) as db_conn:
+                    # Save reference to database connection in program config #
+                    config_obj.db_conn = db_conn
+                    # Call main menu #
+                    main_menu(config_obj)
+                    # Clear db connection reference #
+                    db_conn = None
 
         # If keyboard interrupt is detected #
         except KeyboardInterrupt:
+            # Clear db connection reference and print #
+            db_conn = None
             print('\n\n* [EXIT] Ctrl + c detected .. exiting *')
 
         # If unknown exception occurs #
         except Exception as err:
+            # Clear db connection reference #
+            db_conn = None
+            # Print error and log #
             print_err('Unexpected exception occurred .. check log', 2)
-            logger(f'Exception occurred: {err}', auth, operation='write', handler='exception')
+            logger(config_obj, f'Exception occurred: {err}', operation='write', handler='exception')
             continue
 
     sys.exit(0)
