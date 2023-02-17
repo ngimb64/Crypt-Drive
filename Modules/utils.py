@@ -29,8 +29,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 if os.name == 'nt':
     from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
-from Modules.db_handlers import DbConnectionHandler, db_create, key_insert, db_retrieve, \
-                                query_handler
+import Modules.db_handlers as db_handlers
 
 
 def cha_init(key: bytes, nonce: bytes) -> Cipher:
@@ -90,13 +89,13 @@ def component_handler(config_obj: object, user_input: str) -> object:
         # Acquire semaphore lock in context manager #
         with config_obj.sema_lock:
             # Connect to program database in context manager #
-            with DbConnectionHandler(config_obj.db_name) as db_conn:
+            with db_handlers.DbConnectionHandler(config_obj.db_name) as db_conn:
                 # Set connection in program config #
                 config_obj.db_conn = db_conn
                 # Get query to create database tables #
-                create_query = db_create(config_obj.db_tables)
+                create_query = db_handlers.db_create(config_obj.db_tables)
                 # Execute table creation query #
-                query_handler(config_obj, create_query, exec_script=True)
+                db_handlers.query_handler(config_obj, create_query, exec_script=True)
 
     # If error occurs acquiring semaphore lock #
     except ValueError as sema_err:
@@ -113,7 +112,7 @@ def component_handler(config_obj: object, user_input: str) -> object:
     return make_keys(config_obj, user_input.encode())
 
 
-def data_copy(source: str, dest: str):
+def data_copy(source: Path, dest: Path):
     """
     Copies data from source to destination.
 
@@ -168,12 +167,12 @@ def db_check(config: object, secret: bytes) -> object:
     config.password = crypt_secret
 
     # Retrieve upload key from database #
-    query = db_retrieve(config.db_tables[0])
-    upload_call = query_handler(config, query, 'upload_key', fetch='fetchone')
+    query = db_handlers.db_retrieve(config.db_tables[0])
+    upload_call = db_handlers.query_handler(config, query, 'upload_key', fetch='fetchone')
 
     # Retrieve nonce from database #
-    query = db_retrieve(config.db_tables[0])
-    nonce_call = query_handler(config, query, 'upload_nonce', fetch='fetchone')
+    query = db_handlers.db_retrieve(config.db_tables[0])
+    nonce_call = db_handlers.query_handler(config, query, 'upload_nonce', fetch='fetchone')
 
     # If the upload key call fails #
     if not upload_call or not nonce_call:
@@ -224,65 +223,30 @@ def decrypt_db_data(decrypted_key: bytes, crypt_data: bytes) -> bytes:
     return plain_data
 
 
-def dir_recover(config: object, items: list, folder: str, curr_folder: str) -> list:
+def dir_recover(config: object, curr_folder: Path, dir_map: dict) -> object:
     """
     Iterates through list of passed in dirs and checks to see if current folder is the same name \
     to static assignment.
 
     :param config:  The program configuration instance.
-    :param items:  List of items attempting to be recovered.
-    :param folder:  The folder of the current iteration of os walk procedure.
     :param curr_folder:  The path to the current iteration folder to be recovered.
-    :return:  Updated items list of missing components.
+    :param dir_map:  A dict to map the program dir names to associated paths.
+    :return:  Updated program config instance.
     """
-    # Iterate through passed in missing list #
-    for item in items:
-        # If the folder and item are CryptDbs #
-        if folder == item == 'CryptDbs':
-            # Copy and delete source folder #
-            data_copy(curr_folder, config.dirs[0])
-            print(f'Folder: {item} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
-            break
+    try:
+        # Check dict to see if dir name key exits #
+        lookup_dir = dir_map[curr_folder.name]
+        # Copy dir in current location to original program dir #
+        data_copy(curr_folder, lookup_dir)
+        # Print success and remove from the missing list #
+        print(f'Folder: {lookup_dir} recovered')
+        config.missing.remove(lookup_dir)
 
-        # If the folder and item are CryptImport #
-        if folder == item == 'CryptImport':
-            # Copy and delete source folder #
-            data_copy(curr_folder, config.dirs[1])
-            print(f'Folder: {item} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
-            break
+    # If current iteration folder is not program dir #
+    except KeyError:
+        pass
 
-        # If the folder and item are CryptKeys #
-        if folder == item == 'CryptKeys':
-            # Copy and delete source folder #
-            data_copy(curr_folder, config.dirs[2])
-            print(f'Folder: {item} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
-            break
-
-        # If the folder and item are DecryptDock #
-        if folder == item == 'DecryptDock':
-            # Copy and delete source folder #
-            data_copy(curr_folder, config.dirs[3])
-            print(f'Folder: {item} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
-            break
-
-        # If the folder and item are UploadDock #
-        if folder == item == 'UploadDock':
-            # Copy and delete source folder #
-            data_copy(curr_folder, config.dirs[4])
-            print(f'Folder: {item} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
-            break
-
-    return items
+    return config
 
 
 def encrypt_db_data(decrypted_key: bytes, plain_data: bytes) -> str:
@@ -343,12 +307,12 @@ def fetch_upload_comps(config_obj: object, key_name: str, nonce_name: str) -> tu
     :return:
     """
     # Retrieve decrypt key from keys table #
-    query = db_retrieve(config_obj.db_tables[0])
-    decrypt_query = query_handler(config_obj, query, key_name, fetch='fetchone')
+    query = db_handlers.db_retrieve(config_obj.db_tables[0])
+    decrypt_query = db_handlers.query_handler(config_obj, query, key_name, fetch='fetchone')
 
     # Retrieve nonce from keys table #
-    query = db_retrieve(config_obj.db_tables[0])
-    nonce_query = query_handler(config_obj, query, nonce_name, fetch='fetchone')
+    query = db_handlers.db_retrieve(config_obj.db_tables[0])
+    nonce_query = db_handlers.query_handler(config_obj, query, nonce_name, fetch='fetchone')
 
     # Return fetched query results #
     return decrypt_query, nonce_query
@@ -404,41 +368,33 @@ def file_handler(conf: object, filename: Path, mode: str, operation=None,
     return None
 
 
-def file_recover(config: object, file: str, curr_file: str, items: list) -> list:
+def file_recover(config: object, file: Path, curr_file: str) -> object:
     """
     Checks to see if current iteration of os walk is the file to be recovered.
 
     :param config:  The program configuration instance.
     :param file:  The name of the file attempted to be recovered.
     :param curr_file:  The path to the current file attempted to be recovered.
-    :param items:  The list of missing components.
-    :return:  Updated items list of missing components.
+    :return:  Updated program config instance.
     """
     # Iterate through list of missing components #
-    for item in items:
-        # If file is text #
-        if file.endswith('.txt'):
-            # If file is one of the key components #
-            if file in config.files:
-                # Set the recover destination path #
-                dest_file = config.dirs[2] / file
-                # Copy and delete source file #
-                data_copy(curr_file, dest_file)
-                print(f'File: {file} recovered')
-                # Remove recovered item from missing list #
-                items.remove(item)
-
+    for item in config.missing:
+        # If file is one of the key components #
+        if file in config.files:
+            # Set the recover destination path #
+            dest_file = config.dirs[2] / file
         # If file is the database #
         else:
             # Set the recover destination path #
             dest_file = config.dirs[0] / file
-            # Copy and delete source file #
-            data_copy(curr_file, dest_file)
-            print(f'File: {file} recovered')
-            # Remove recovered item from missing list #
-            items.remove(item)
 
-    return items
+        # Copy and delete source file #
+        data_copy(curr_file, dest_file)
+        print(f'File: {str(file)} recovered in file system')
+        # Remove recovered item from missing list #
+        config.missing.remove(item)
+
+    return config
 
 
 def get_database_comp(conf_obj: object) -> bytes:
@@ -454,50 +410,57 @@ def get_database_comp(conf_obj: object) -> bytes:
     return conf_obj.decrypt_db_key(plain_pass)
 
 
-def hd_crawl(config_obj: object, items: list) -> list:
+def hd_crawl(config_obj: object) -> object:
     """
     Recursive hard drive crawler for recovering missing components.
 
     :param config_obj:  The program configuration instance.
-    :param items:  List of missing item(s) to be recovered.
-    :return:  Boolean True/False whether operation was success/fail.
+    :return:  Update program config instance.
     """
     # If OS is Windows #
     if os.name == 'nt':
         crawl_path = 'C:\\Users'
     # If OS is Linux #
     else:
-        crawl_path = '\\home'
+        crawl_path = '/home'
+
+    # Map program dir names to associated paths #
+    program_dirs = {'CryptDbs': config_obj.dirs[0],
+                    'CryptImport': config_obj.dirs[1],
+                    'CryptKeys': config_obj.dirs[2],
+                    'DecryptDock': config_obj.dirs[3],
+                    'UploadDock': config_obj.dirs[4]}
 
     # Crawl through user directories #
     for dir_path, dir_names, file_names in os.walk(crawl_path, topdown=True):
         # If there are no recovery items left #
-        if not items:
+        if not config_obj.missing:
             break
 
         # If there are folders in the missing list #
-        if not items[0].endswith('.db') and not items[0].endswith('.txt'):
+        if not str(config_obj.missing[0]).endswith('.db') \
+        and not str(config_obj.missing[0]).endswith('.txt'):
             # Iterate through folders in current dir #
             for folder in dir_names:
                 # If there are no more folders in the missing list #
-                if items[0].endswith('.db') or not items:
+                if not config_obj.missing or str(config_obj.missing[0]).endswith('.db'):
                     break
 
                 # Set current iteration path #
-                curr_folder = Path(dir_path) / folder
+                curr_item = Path(dir_path) / folder
                 # Iterate through list of missing attempts
                 # and attempt to match dir to recover #
-                items = dir_recover(config_obj, items, folder, curr_folder)
+                config_obj = dir_recover(config_obj, curr_item, program_dirs)
 
         # Iterate through files in current dir #
         for file in file_names:
             # Set current iteration path #
-            curr_file = Path(dir_path) / file
+            curr_item = Path(dir_path) / file
             # Iterate through list of missing attempts
             # and attempt to match file to recover #
-            items = file_recover(config_obj, file, curr_file, items)
+            config_obj = file_recover(config_obj, file, curr_item)
 
-    return items
+    return config_obj
 
 
 def key_recreate(conf_obj: object, db_key: bytes, key_size: int, db_name: str, store_comp: str):
@@ -517,8 +480,8 @@ def key_recreate(conf_obj: object, db_key: bytes, key_size: int, db_name: str, s
     encoded_comp = b64encode(crypt_comp)
 
     # Send upload key to key database #
-    query = key_insert(db_name)
-    query_handler(conf_obj, query, store_comp, encoded_comp.decode('utf-8'))
+    query = db_handlers.key_insert(db_name)
+    db_handlers.query_handler(conf_obj, query, store_comp, encoded_comp.decode('utf-8'))
 
 
 def logger(conf_obj: object, msg: str, operation=None, handler=None):
@@ -682,12 +645,12 @@ def make_keys(config: object, password: bytes) -> object:
     config.password = crypt_hash
 
     # Send encrypted ChaCha20 key to key's database #
-    query = key_insert(config.db_tables[0])
-    query_handler(config, query, 'upload_key', upload_key.decode('utf-8'))
+    query = db_handlers.key_insert(config.db_tables[0])
+    db_handlers.query_handler(config, query, 'upload_key', upload_key.decode('utf-8'))
 
     # Send encrypted ChaCha20 nonce to keys database #
-    query = key_insert(config.db_tables[0])
-    query_handler(config, query, 'upload_nonce', cha_nonce.decode('utf-8'))
+    query = db_handlers.key_insert(config.db_tables[0])
+    db_handlers.query_handler(config, query, 'upload_nonce', cha_nonce.decode('utf-8'))
 
     # Write AESCCM key and nonce to files #
     file_handler(config, config.files[0], 'wb', operation='write', data=key)
@@ -832,7 +795,7 @@ def print_err(msg: str, seconds):
         time.sleep(seconds)
 
 
-def recycle_check(config_obj: object) -> list:
+def recycle_check(config_obj: object) -> object:
     """
     Checks the recycling bin for missing program components.
 
@@ -845,11 +808,11 @@ def recycle_check(config_obj: object) -> list:
     for item in config_obj.missing:
         # If item is file #
         if item in (config_obj.files + config_obj.db_name):
-            # Parse file without extension #
+            # Parse file without extension out of path #
             re_item = re.search(config_obj.re_no_ext, str(item))
         # If item is folder #
         else:
-            # Parse folder for winshell recycling bin check #
+            # Parse folder out of path #
             re_item = re.search(config_obj.re_win_dir, str(item))
 
         # Append item path to program root dir #
@@ -873,7 +836,9 @@ def recycle_check(config_obj: object) -> list:
             print(f'{item} not found in recycling bin')
             miss_list.append(item)
 
-    return miss_list
+    # Assign missing list to config #
+    config_obj.missing = miss_list
+    return config_obj
 
 
 def secure_delete(path: Path, passes=5):

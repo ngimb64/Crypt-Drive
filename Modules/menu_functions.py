@@ -12,13 +12,13 @@ from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
-from Modules.db_handlers import data_insert, db_contents, db_delete, key_insert
+from Modules.db_handlers import data_insert, db_contents, db_delete, key_insert, query_handler
 from Modules.menu_utils import upload_dir_handler, decrypt_input, extract_input, extract_parse, \
                                import_input, meta_handler, share_input, store_input, \
                                upload_extract, upload_input, upload_stage
 from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
                           fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
-                          msg_format, msg_send, print_err, query_handler, secure_delete
+                          msg_format, msg_send, print_err, secure_delete
 
 
 def db_extract(config_obj: object):

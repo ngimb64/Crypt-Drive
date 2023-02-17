@@ -4,8 +4,8 @@ import re
 from base64 import b64decode
 from pathlib import Path
 # Custom modules #
-from Modules.db_handlers import db_contents, db_delete
-from Modules.utils import file_handler, meta_strip, print_err, query_handler
+from Modules.db_handlers import db_contents, db_delete, query_handler
+from Modules.utils import file_handler, meta_strip, print_err
 
 
 def decrypt_input(conf_obj: object) -> tuple:

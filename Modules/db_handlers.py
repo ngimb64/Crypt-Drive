@@ -2,7 +2,7 @@
 import sqlite3
 import sys
 # Custom modules #
-from Modules.utils import logger, print_err
+import Modules.utils as utils
 
 
 def db_create(db_tuple: tuple) -> str:
@@ -115,9 +115,9 @@ def query_handler(conf: object, query, *args, exec_script=None, fetch=None):
     """
     # If the passed in MySQL query was not a complete statement #
     if not sqlite3.complete_statement(query):
-        logger(conf, f'Passed in query is not a complete MySQL statement: {query}',
-               operation='write', handler='error')
-        print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
+        utils.logger(conf, f'Passed in query is not a complete MySQL statement: {query}',
+                     operation='write', handler='error')
+        utils.print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
         sys.exit(3)
 
     try:
@@ -155,9 +155,9 @@ def query_handler(conf: object, query, *args, exec_script=None, fetch=None):
 
             # If the fetch flag has been set to unknown value #
             else:
-                print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
-                logger(conf, f'Fetch flag is set to unexpected value: {fetch}',
-                       operation='write', handler='error')
+                utils.print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
+                utils.logger(conf, f'Fetch flag is set to unexpected value: {fetch}',
+                             operation='write', handler='error')
                 sys.exit(4)
 
     # If error occurs during database operation #
@@ -176,51 +176,52 @@ def db_error_query(conf_obj: object, db_error: object):
     """
     # If query is not a string or multiple queries are passed to execute() #
     if db_error == sqlite3.Warning:
-        print_err(f'Db sqlite warning: {db_error}', None)
-        logger(conf_obj, f'Db sqlite3 warning: {db_error}', operation='write', handler='error')
+        utils.print_err(f'Db sqlite warning: {db_error}', None)
+        utils.logger(conf_obj, f'Db sqlite3 warning: {db_error}',
+                     operation='write', handler='error')
 
     # If error occurs during fetch across rollback or is unable to bind parameters #
     elif db_error == sqlite3.InterfaceError:
-        print_err(f'Db interface error: {db_error}', None)
-        logger(conf_obj, f'Db interface error: {db_error}', operation='write', handler='error')
+        utils.print_err(f'Db interface error: {db_error}', None)
+        utils.logger(conf_obj, f'Db interface error: {db_error}', operation='write', handler='error')
 
     # If data-related error occurs, such as number out of range and overflowed strings #
     elif db_error == sqlite3.DataError:
-        print_err(f'Db data-related error: {db_error}', None)
-        logger(conf_obj, f'Db data-related error: {db_error}', operation='write', handler='error')
+        utils.print_err(f'Db data-related error: {db_error}', None)
+        utils.logger(conf_obj, f'Db data-related error: {db_error}', operation='write', handler='error')
 
     # If database operation error occurs, such as a database path not being found or the failed
     # processing of a transaction #
     elif db_error == sqlite3.OperationalError:
-        print_err(f'Db operational error: {db_error}', None)
-        logger(conf_obj, f'Db operational error: {db_error}', operation='write', handler='error')
+        utils.print_err(f'Db operational error: {db_error}', None)
+        utils.logger(conf_obj, f'Db operational error: {db_error}', operation='write', handler='error')
 
     # If database relational integrity is affected #
     elif db_error == sqlite3.IntegrityError:
-        print_err(f'Db relational integrity error: {db_error}', None)
-        logger(conf_obj, f'Db relational integrity error: {db_error}', operation='write',
-               handler='error')
+        utils.print_err(f'Db relational integrity error: {db_error}', None)
+        utils.logger(conf_obj, f'Db relational integrity error: {db_error}', operation='write',
+                     handler='error')
 
     # If sqlite3 internal error occurs, suggesting a potential runtime library issue #
     elif db_error == sqlite3.InternalError:
-        print_err(f'Db sqlite3 internal runtime error: {db_error}', None)
-        logger(conf_obj, f'Db sqlite3 internal runtime error: {db_error}', operation='write',
-               handler='error')
+        utils.print_err(f'Db sqlite3 internal runtime error: {db_error}', None)
+        utils.logger(conf_obj, f'Db sqlite3 internal runtime error: {db_error}', operation='write',
+                     handler='error')
 
     # If sqlite3 API error occurs, such as trying to operate on a closed connection #
     elif db_error == sqlite3.ProgrammingError:
-        print_err(f'Db sqlite3 API operational error: {db_error}', None)
-        logger(conf_obj, f'Db sqlite3 APi operational error: {db_error}', operation='write',
+        utils.print_err(f'Db sqlite3 API operational error: {db_error}', None)
+        utils.logger(conf_obj, f'Db sqlite3 APi operational error: {db_error}', operation='write',
                handler='error')
 
     # If a called API method is not supported by the underlying SQLite3 runtime library #
     elif db_error == sqlite3.NotSupportedError:
-        print_err(f'Db API not supported by sqlite3 runtime library: {db_error}', None)
-        logger(conf_obj, f'Db API not supported by sqlite3 runtime library: {db_error}',
-               operation='write', handler='error')
+        utils.print_err(f'Db API not supported by sqlite3 runtime library: {db_error}', None)
+        utils.logger(conf_obj, f'Db API not supported by sqlite3 runtime library: {db_error}',
+                     operation='write', handler='error')
 
     # If unexpected error occurs (shouldn't happen, just in case) #
     else:
-        print_err(f'Unexpected database exception: {db_error}', None)
-        logger(conf_obj, f'Unexpected database exception: {db_error}', operation='write',
-               handler='error')
+        utils.print_err(f'Unexpected database exception: {db_error}', None)
+        utils.logger(conf_obj, f'Unexpected database exception: {db_error}', operation='write',
+                     handler='error')

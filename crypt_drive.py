@@ -9,6 +9,7 @@ import time
 from getpass import getpass
 from io import StringIO
 from pathlib import Path
+from shutil import rmtree
 from threading import BoundedSemaphore
 # External Modules #
 from argon2 import PasswordHasher
@@ -119,34 +120,32 @@ def start_check(config: object) -> bool:
     # If OS is Windows #
     if os.name == 'nt':
         # Check the recycling bin for missing items #
-        misses = recycle_check(config)
-
+        config = recycle_check(config)
         # If all items were recovered #
-        if not misses:
+        if not config.missing:
             return True
-    # If OS is Linux #
-    else:
-        misses = config.missing
 
     # Attempt to recover list of missing items from hard drive #
-    failures = hd_crawl(config, misses)
+    config = hd_crawl(config)
 
     # If hard drive recovery was not successful #
-    if failures:
-        # For component in list of failures #
-        for fail in failures:
+    if config.missing:
+        # Iterate through missing list #
+        for fail in config.missing:
             # If component is in independent of database & key-set #
             if fail in (config.dirs[1], config.dirs[3], config.dirs[4]):
                 # Create folder #
-                fail.mkdir(fail, parents=True)
+                fail.mkdir(parents=True, exist_ok=True)
+                config.missing.remove(fail)
             # If component is a essential component #
             else:
-                # Delete component files #
-                for item in (config.files + config.db_name):
-                    # If the current item exists #
-                    if item.exists():
-                        # Delete it #
-                        secure_delete(item)
+                # Reset the missing list #
+                config.missing = []
+
+                # Iterate through program component dirs #
+                for path in config.dirs:
+                    # Delete dir and all contents #
+                    rmtree(path)
 
                 return False
 
@@ -211,14 +210,12 @@ def password_input(conf_obj: object) -> object:
                 continue
 
             # Create dirs, db tables, and keys #
-            conf_obj = component_handler(conf_obj, prompt)
-
-            return conf_obj
+            return component_handler(conf_obj, prompt)
 
         # If password keyring exists, but component files are missing #
         if conf_obj.missing:
             print('\nCryptographic key-set seems to exist but is missing in program directory .. '
-                  f'attempting to recover components\n{"*" * 109}\n')
+                  f'attempting to recover components\n{"*" * 109}')
 
             # Attempt to recover missing components #
             ret = start_check(conf_obj)
@@ -226,11 +223,7 @@ def password_input(conf_obj: object) -> object:
             if not ret:
                 print_err('Unable to recover all missing components .. recreating key-set', 2.5)
                 # Create dirs, db tables, and keys #
-                conf_obj = component_handler(conf_obj, prompt)
-
-                return conf_obj
-
-            conf_obj.missing = []
+                return component_handler(conf_obj, prompt)
 
         # Check for database contents and set auth object #
         conf_obj = db_check(conf_obj, prompt.encode())
@@ -296,12 +289,12 @@ class ProgramConfig:
                      self.cwd / 'DecryptDock',
                      self.cwd / 'UploadDock')
         # Command syntax and database tuple #
-        self.db_name = self.dirs[0] / 'crypt_storage.db'
+        self.db_name = (self.dirs[0] / 'crypt_storage.db',)
         self.db_tables = ('crypt_keys', 'crypt_storage')
         # Database access semaphore and connection reference #
         self.sema_lock = BoundedSemaphore(value=1)
         self.db_conn = None
-        # Configure program file paths #
+        # Configure program cryptographic key paths #
         self.files = (self.dirs[2] / 'aesgcm.txt',
                       self.dirs[2] / 'nonce.txt',
                       self.dirs[2] / 'db_crypt.txt',
