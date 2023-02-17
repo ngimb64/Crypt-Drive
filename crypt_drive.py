@@ -3,6 +3,7 @@ import binascii
 import logging
 import os
 import re
+import sqlite3
 import sys
 import time
 from getpass import getpass
@@ -19,7 +20,7 @@ from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
 # Custom Modules #
-from Modules.db_handlers import DbConnectionHandler
+from Modules.db_handlers import DbConnectionHandler, db_error_query
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
 from Modules.utils import component_handler, db_check, hd_crawl, logger, login_timeout, print_err, \
@@ -220,7 +221,7 @@ def password_input(conf_obj: object) -> object:
                   f'attempting to recover components\n{"*" * 109}\n')
 
             # Attempt to recover missing components #
-            ret = start_check(conf_obj.dbs[1])
+            ret = start_check(conf_obj)
             # If unable to recover components essential to the key-set #
             if not ret:
                 print_err('Unable to recover all missing components .. recreating key-set', 2.5)
@@ -232,7 +233,7 @@ def password_input(conf_obj: object) -> object:
             conf_obj.missing = []
 
         # Check for database contents and set auth object #
-        conf_obj = db_check(conf_obj, conf_obj.dbs[0], prompt.encode())
+        conf_obj = db_check(conf_obj, prompt.encode())
         # Decrypt the password #
         check_pass = conf_obj.get_plain_secret()
 
@@ -281,6 +282,8 @@ class ProgramConfig:
         self.re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
         self.re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
         self.re_win_dir = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=$)')
+        self.re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\\-\'\"]{1,240}')
+        self.re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./\-\'\"]{1,240}')
 
         # Create string IO object for logging #
         self.log_stream = StringIO()
@@ -303,6 +306,9 @@ class ProgramConfig:
                       self.dirs[2] / 'nonce.txt',
                       self.dirs[2] / 'db_crypt.txt',
                       self.dirs[2] / 'secret_key.txt')
+        self.meta_exts = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
+                          '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf',
+                          '.png', '.pptx', '.rar', '.wav', '.wma', '.zip')
         self.log_name = self.cwd / 'crypt_log.log'
         # List to reference missing program components #
         self.missing = []
@@ -393,20 +399,29 @@ if __name__ == '__main__':
                     config_obj.db_conn = db_conn
                     # Call main menu #
                     main_menu(config_obj)
-                    # Clear db connection reference #
-                    db_conn = None
 
         # If keyboard interrupt is detected #
         except KeyboardInterrupt:
-            # Clear db connection reference and print #
-            db_conn = None
             print('\n\n* [EXIT] Ctrl + c detected .. exiting *')
+
+        # If error occurs acquiring semaphore lock #
+        except ValueError as sema_err:
+            # Print error, log, and continue #
+            print_err('Semaphore error occurred attempting to acquire a database connection: '
+                      f'{sema_err}', 2)
+            logger(config_obj, 'Semaphore error occurred attempting to acquire a database '
+                               f'connection: {sema_err}', operation='write', handler='error')
+            continue
+
+        # If database error occurs #
+        except sqlite3.Error as db_err:
+            # Look up database error, log, and loop #
+            db_error_query(config_obj, db_err)
+            continue
 
         # If unknown exception occurs #
         except Exception as err:
-            # Clear db connection reference #
-            db_conn = None
-            # Print error and log #
+            # Print error, log, and loop #
             print_err('Unexpected exception occurred .. check log', 2)
             logger(config_obj, f'Exception occurred: {err}', operation='write', handler='exception')
             continue

@@ -1,5 +1,4 @@
 """ Built-in modules """
-import logging
 import sqlite3
 import sys
 # Custom modules #
@@ -103,42 +102,42 @@ class DbConnectionHandler:
         self.connection.close()
 
 
-def query_handler(conf: object, connection, query, *args, exec_script=None, fetch=None):
+def query_handler(conf: object, query, *args, exec_script=None, fetch=None):
     """
     Database handler to handler various db calls with session locking and error handling.
 
-    :param connection:  The protected database connection to be interacted with.
+    :param conf:  The program configuration instance.
     :param query:  The query to be executed in the accessed database.
     :param args:  Takes variable length arguments to pass as database parameters.
     :param exec_script:  If set to True, runs executescript instead of execute.
     :param fetch:  If set to one, fetchone is returned. If set to all, fetchall is returned.
     :return:  If fetching data, the fetched data is returned. Otherwise, None.
     """
-    # TODO: tie logging into project custom encrypted logging system
     # If the passed in MySQL query was not a complete statement #
     if not sqlite3.complete_statement(query):
-        logging.error('Passed in query is not a complete MySQL statement: %s\n\n', query)
+        logger(conf, f'Passed in query is not a complete MySQL statement: {query}',
+               operation='write', handler='error')
         print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
         sys.exit(3)
 
     try:
         # Connection context manager auto-handles commits/rollbacks #
-        with connection:
+        with conf.db_conn:
             # If query is one-liner #
             if not exec_script:
                 # If no args to be parsed into query #
                 if not args:
                     # Execute SQL query #
-                    db_call = connection.execute(query)
+                    db_call = conf.db_conn.execute(query)
                 # If args are to be parsed into query #
                 else:
                     # Execute SQL query #
-                    db_call = connection.execute(query, args)
+                    db_call = conf.db_conn.execute(query, args)
 
             # If query is multi-liner script #
             else:
                 # Execute SQL script #
-                db_call = connection.executescript(query)
+                db_call = conf.db_conn.executescript(query)
 
             # If the fetch flag is set to "one" #
             if fetch == 'one':
