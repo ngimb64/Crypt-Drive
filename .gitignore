@@ -1,10 +1,9 @@
 # Folders to ignore
-CryptDbs/
-DecryptDock/
-CryptImport/
-CryptKeys/
-Resource_Files/
-UploadDock/
+CryptDrive_Dbs/
+CryptDrive_Decrypt/
+CryptDrive_Import/
+CryptDrive_Keys/
+CryptDrive_Upload
 Modules/__pycache__/
 .idea/
 venv/

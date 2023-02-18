@@ -16,7 +16,6 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from sqlite3 import Error
 # External Modules #
 import keyring
 from argon2 import PasswordHasher
@@ -80,22 +79,22 @@ def component_handler(config_obj: object, user_input: str) -> object:
     """
     # Iterate through program folders #
     for folder in config_obj.dirs:
-        # If current folder is missing #
-        if folder in config_obj.missing:
-            # Create missing folder #
-            folder.mkdir(parents=True, exist_ok=True)
+        # Create missing folder #
+        folder.mkdir(parents=True, exist_ok=True)
 
     try:
         # Acquire semaphore lock in context manager #
         with config_obj.sema_lock:
             # Connect to program database in context manager #
-            with db_handlers.DbConnectionHandler(config_obj.db_name) as db_conn:
+            with db_handlers.DbConnectionHandler(config_obj.db_name[0]) as db_conn:
                 # Set connection in program config #
                 config_obj.db_conn = db_conn
                 # Get query to create database tables #
                 create_query = db_handlers.db_create(config_obj.db_tables)
                 # Execute table creation query #
                 db_handlers.query_handler(config_obj, create_query, exec_script=True)
+                # Create fresh cryptographic key set #
+                return make_keys(config_obj, user_input.encode())
 
     # If error occurs acquiring semaphore lock #
     except ValueError as sema_err:
@@ -107,9 +106,6 @@ def component_handler(config_obj: object, user_input: str) -> object:
     except sqlite3.Error as db_err:
         print_err(f'Error occurred during database operation: {db_err}', 2)
         sys.exit(3)
-
-    # Create fresh cryptographic key set #
-    return make_keys(config_obj, user_input.encode())
 
 
 def data_copy(source: Path, dest: Path):
@@ -166,34 +162,57 @@ def db_check(config: object, secret: bytes) -> object:
     config.secret_key = secret_key
     config.password = crypt_secret
 
-    # Retrieve upload key from database #
-    query = db_handlers.db_retrieve(config.db_tables[0])
-    upload_call = db_handlers.query_handler(config, query, 'upload_key', fetch='fetchone')
+    try:
+        # Acquire semaphore lock for db access #
+        with config.sema_lock:
+            # Establish database connection in context manager #
+            with db_handlers.DbConnectionHandler(config.db_name[0]) as db_conn:
+                # Save reference to database connection in program config #
+                config.db_conn = db_conn
+                # Retrieve upload key from database #
+                query = db_handlers.db_retrieve(config.db_tables[0])
+                upload_call = db_handlers.query_handler(config, query, 'upload_key',
+                                                        fetch='one')
+                # Retrieve nonce from database #
+                query = db_handlers.db_retrieve(config.db_tables[0])
+                nonce_call = db_handlers.query_handler(config, query, 'upload_nonce',
+                                                       fetch='one')
+                # If the upload key call fails #
+                if not upload_call or not nonce_call:
+                    # Display error and ensure it is being fixed #
+                    print_err('Database missing upload component .. creating new key & upload to '
+                              'db\nData will need to be re uploaded with new key otherwise '
+                              'decryption will fail', 2)
 
-    # Retrieve nonce from database #
-    query = db_handlers.db_retrieve(config.db_tables[0])
-    nonce_call = db_handlers.query_handler(config, query, 'upload_nonce', fetch='fetchone')
+                    if not upload_call:
+                        print('Creating new upload key ..')
+                        # Recreate 32 byte upload key and store to keys database #
+                        key_recreate(config, db_key, 32, config.db_tables[0], 'upload_key')
 
-    # If the upload key call fails #
-    if not upload_call or not nonce_call:
-        # Display error and ensure it is being fixed #
-        print_err('Database missing upload component .. creating new key & upload to db\n'
-                 'Data will need to be re uploaded with new key otherwise decryption will fail', 2)
+                    if not nonce_call:
+                        print('Creating new upload nonce')
+                        # Recreate 16 byte upload nonce and store to keys database #
+                        key_recreate(config, db_key, 16, config.db_tables[0], 'upload_nonce')
 
-        if not upload_call:
-            print('Creating new upload key ..')
-            # Recreate 32 byte upload key and store to keys database #
-            key_recreate(config, db_key, 32, config.db_tables[0], 'upload_key')
+                else:
+                    # Confirm retrieved upload key/nonce properly decode & decrypt #
+                    _ = decrypt_db_data(db_key, upload_call[1])
+                    _ = decrypt_db_data(db_key, nonce_call[1])
 
-        if not nonce_call:
-            print('Creating new upload nonce')
-            # Recreate 16 byte upload nonce and store to keys database #
-            key_recreate(config, db_key, 16, config.db_tables[0], 'upload_nonce')
+    # If error occurs acquiring semaphore lock #
+    except ValueError as sema_err:
+        # Print error, log, and continue #
+        print_err('Semaphore error occurred attempting to acquire a database connection: '
+                  f'{sema_err}', 2)
+        logger(config, 'Semaphore error occurred attempting to acquire a database '
+                           f'connection: {sema_err}', operation='write', handler='error')
+        sys.exit(5)
 
-    else:
-        # Confirm retrieved upload key/nonce properly decode & decrypt #
-        _ = decrypt_db_data(db_key, upload_call[1])
-        _ = decrypt_db_data(db_key, nonce_call[1])
+    # If database error occurs #
+    except sqlite3.Error as db_err:
+        # Look up database error, log, and loop #
+        db_handlers.db_error_query(config, db_err)
+        sys.exit(5)
 
     # Return the populated auth object #
     return config
@@ -215,7 +234,7 @@ def decrypt_db_data(decrypted_key: bytes, crypt_data: bytes) -> bytes:
         plain_data = Fernet(decrypted_key).decrypt(decoded_data)
 
     # If invalid token or encoding error #
-    except (InvalidToken, TypeError, Error) as err:
+    except (InvalidToken, TypeError, ValueError) as err:
         print_err(f'Error occurred during fernet data decryption: {err}', 2)
         sys.exit(7)
 
@@ -262,7 +281,7 @@ def encrypt_db_data(decrypted_key: bytes, plain_data: bytes) -> str:
         crypt_data = Fernet(decrypted_key).encrypt(plain_data)
 
     # If invalid token or encoding error #
-    except (InvalidToken, TypeError, Error) as err:
+    except (InvalidToken, TypeError, ValueError) as err:
         print_err(f'Error occurred during fernet data decryption: {err}', 2)
         sys.exit(8)
 
@@ -368,31 +387,35 @@ def file_handler(conf: object, filename: Path, mode: str, operation=None,
     return None
 
 
-def file_recover(config: object, file: Path, curr_file: str) -> object:
+def file_recover(config: object, curr_file: Path) -> object:
     """
     Checks to see if current iteration of os walk is the file to be recovered.
 
     :param config:  The program configuration instance.
-    :param file:  The name of the file attempted to be recovered.
     :param curr_file:  The path to the current file attempted to be recovered.
     :return:  Updated program config instance.
     """
     # Iterate through list of missing components #
     for item in config.missing:
         # If file is one of the key components #
-        if file in config.files:
+        if item.name == curr_file.name and item.name.endswith('.txt'):
             # Set the recover destination path #
-            dest_file = config.dirs[2] / file
-        # If file is the database #
-        else:
-            # Set the recover destination path #
-            dest_file = config.dirs[0] / file
+            dest_file = config.dirs[2] / curr_file.name
+            # Copy and delete source file #
+            data_copy(curr_file, dest_file)
+            print(f'File: {curr_file.name} recovered in file system')
+            # Remove recovered item from missing list #
+            config.missing.remove(item)
 
-        # Copy and delete source file #
-        data_copy(curr_file, dest_file)
-        print(f'File: {str(file)} recovered in file system')
-        # Remove recovered item from missing list #
-        config.missing.remove(item)
+        # If file is the database #
+        if item.name == curr_file.name and item.name.endswith('.db'):
+            # Set the recover destination path #
+            dest_file = config.dirs[0] / curr_file.name
+            # Copy and delete source file #
+            data_copy(curr_file, dest_file)
+            print(f'File: {curr_file.name} recovered in file system')
+            # Remove recovered item from missing list #
+            config.missing.remove(item)
 
     return config
 
@@ -425,11 +448,11 @@ def hd_crawl(config_obj: object) -> object:
         crawl_path = '/home'
 
     # Map program dir names to associated paths #
-    program_dirs = {'CryptDbs': config_obj.dirs[0],
-                    'CryptImport': config_obj.dirs[1],
-                    'CryptKeys': config_obj.dirs[2],
-                    'DecryptDock': config_obj.dirs[3],
-                    'UploadDock': config_obj.dirs[4]}
+    program_dirs = {'CryptDrive_Dbs': config_obj.dirs[0],
+                    'CryptDrive_Import': config_obj.dirs[1],
+                    'CryptDrive_Keys': config_obj.dirs[2],
+                    'CryptDrive_Decrypt': config_obj.dirs[3],
+                    'CryptDrive_Upload': config_obj.dirs[4]}
 
     # Crawl through user directories #
     for dir_path, dir_names, file_names in os.walk(crawl_path, topdown=True):
@@ -454,23 +477,27 @@ def hd_crawl(config_obj: object) -> object:
 
         # Iterate through files in current dir #
         for file in file_names:
+            # If there are no recovery items left #
+            if not config_obj.missing:
+                break
+
             # Set current iteration path #
             curr_item = Path(dir_path) / file
             # Iterate through list of missing attempts
             # and attempt to match file to recover #
-            config_obj = file_recover(config_obj, file, curr_item)
+            config_obj = file_recover(config_obj, curr_item)
 
     return config_obj
 
 
-def key_recreate(conf_obj: object, db_key: bytes, key_size: int, db_name: str, store_comp: str):
+def key_recreate(conf_obj: object, db_key: bytes, key_size: int, db_table: str, store_comp: str):
     """
     Recreates key or nonce and insert them back into param db_name database named as store_comp.
 
     :param conf_obj:  The program configuration instance.
     :param db_key:  The Fernet key to encrypt recreated keys before storing them.
     :param key_size:  The size of the key/nonce size to be recreated and stored.
-    :param db_name:  The database name where the keys will be stored.
+    :param db_table:  The database name where the keys will be stored.
     :param store_comp:  The name of key that will be stored in the database.
     :return:
     """
@@ -480,7 +507,7 @@ def key_recreate(conf_obj: object, db_key: bytes, key_size: int, db_name: str, s
     encoded_comp = b64encode(crypt_comp)
 
     # Send upload key to key database #
-    query = db_handlers.key_insert(db_name)
+    query = db_handlers.key_insert(db_table)
     db_handlers.query_handler(conf_obj, query, store_comp, encoded_comp.decode('utf-8'))
 
 
@@ -810,30 +837,43 @@ def recycle_check(config_obj: object) -> object:
         if item in (config_obj.files + config_obj.db_name):
             # Parse file without extension out of path #
             re_item = re.search(config_obj.re_no_ext, str(item))
+            # If the item is a cryptographic file #
+            if item in config_obj.files:
+                path = config_obj.dirs[2]
+            # If the item is database #
+            else:
+                path = config_obj.dirs[0]
         # If item is folder #
         else:
             # Parse folder out of path #
             re_item = re.search(config_obj.re_win_dir, str(item))
+            path = config_obj.cwd
 
-        # Append item path to program root dir #
-        parse = f'{str(config_obj.cwd)}\\{re_item.group(0)}'
+        # If regex parse was successful #
+        if re_item:
+            # Append item path to program root dir #
+            parse = path / re_item.group(0)
+        # If regex parse failed #
+        else:
+            continue
+
         try:
             # Check recycling bin for item #
-            undelete(parse)
+            undelete(str(parse))
 
             # If item is a text file #
             if item in config_obj.files:
-                os.rename(parse, f'{parse}.txt')
+                os.rename(str(parse), f'{parse}.txt')
 
             # If item is the database #
-            if item == config_obj.db_name[:-3]:
-                os.rename(parse, f'{parse}.db')
+            if item.name == config_obj.db_name[0].name:
+                os.rename(str(parse), f'{parse}.db')
 
-            print(f'{item} was found in recycling bin')
+            print(f'{item.name} was found in recycling bin')
 
         # If attempt to recover component from recycling bin fails #
         except x_not_found_in_recycle_bin:
-            print(f'{item} not found in recycling bin')
+            print(f'{item.name} not found in recycling bin')
             miss_list.append(item)
 
     # Assign missing list to config #
@@ -841,7 +881,7 @@ def recycle_check(config_obj: object) -> object:
     return config_obj
 
 
-def secure_delete(path: Path, passes=5):
+def secure_delete(path: Path, passes=10):
     """
     Overwrite file data with random data number of specified passes and delete.
 

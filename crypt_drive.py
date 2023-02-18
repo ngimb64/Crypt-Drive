@@ -25,7 +25,7 @@ from Modules.db_handlers import DbConnectionHandler, db_error_query
 from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
                                    list_drive, list_storage, upload
 from Modules.utils import component_handler, db_check, hd_crawl, logger, login_timeout, print_err, \
-                          recycle_check, secure_delete, sys_lock
+                          recycle_check, sys_lock
 
 
 def main_menu(config: object):
@@ -144,8 +144,20 @@ def start_check(config: object) -> bool:
 
                 # Iterate through program component dirs #
                 for path in config.dirs:
-                    # Delete dir and all contents #
-                    rmtree(path)
+                    # If the directory exists #
+                    if path.exists():
+                        try:
+                            # Delete dir and all contents #
+                            rmtree(path)
+
+                        # If error occurs recursively deleting dir #
+                        except OSError as del_err:
+                            # Print error, log, and exit #
+                            print_err('Error deleting program dir for component reset: '
+                                      f'{del_err}', 2)
+                            logger(config, 'Error deleting program dir for component reset: '
+                                           f'{del_err}', operation='write', handler='error')
+                            sys.exit(4)
 
                 return False
 
@@ -214,8 +226,8 @@ def password_input(conf_obj: object) -> object:
 
         # If password keyring exists, but component files are missing #
         if conf_obj.missing:
-            print('\nCryptographic key-set seems to exist but is missing in program directory .. '
-                  f'attempting to recover components\n{"*" * 109}')
+            print('\nCryptographic key-set seem to exist but are missing .. '
+                  f'attempting to recover\n{"*" * 77}')
 
             # Attempt to recover missing components #
             ret = start_check(conf_obj)
@@ -283,11 +295,11 @@ class ProgramConfig:
         # Current working directory #
         self.cwd = Path.cwd()
         # Configure program directories #
-        self.dirs = (self.cwd / 'CryptDbs',
-                     self.cwd / 'CryptImport',
-                     self.cwd / 'CryptKeys',
-                     self.cwd / 'DecryptDock',
-                     self.cwd / 'UploadDock')
+        self.dirs = (self.cwd / 'CryptDrive_Dbs',
+                     self.cwd / 'CryptDrive_Import',
+                     self.cwd / 'CryptDrive_Keys',
+                     self.cwd / 'CryptDrive_Decrypt',
+                     self.cwd / 'CryptDrive_Upload')
         # Command syntax and database tuple #
         self.db_name = (self.dirs[0] / 'crypt_storage.db',)
         self.db_tables = ('crypt_keys', 'crypt_storage')
@@ -346,7 +358,7 @@ class ProgramConfig:
         :return:  Decrypted database key.
         """
         # Initialize AESCCM algo object #
-        aesccm = AESCCM(self.aesccm)
+        aesccm = AESCCM(self.aesccm, 256 // 8)
 
         try:
             # Decrypt database Fernet key #
@@ -387,7 +399,7 @@ if __name__ == '__main__':
             # Acquire semaphore lock for db access #
             with config_obj.sema_lock:
                 # Establish database connection in context manager #
-                with DbConnectionHandler(config_obj.db_name) as db_conn:
+                with DbConnectionHandler(config_obj.db_name[0]) as db_conn:
                     # Save reference to database connection in program config #
                     config_obj.db_conn = db_conn
                     # Call main menu #

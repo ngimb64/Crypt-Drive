@@ -115,9 +115,10 @@ def query_handler(conf: object, query, *args, exec_script=None, fetch=None):
     """
     # If the passed in MySQL query was not a complete statement #
     if not sqlite3.complete_statement(query):
+        # Print error, log, and exit #
+        utils.print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
         utils.logger(conf, f'Passed in query is not a complete MySQL statement: {query}',
                      operation='write', handler='error')
-        utils.print_err(f'Passed in query is not a complete MySQL statement: {query}', None)
         sys.exit(3)
 
     try:
@@ -183,36 +184,39 @@ def db_error_query(conf_obj: object, db_error: object):
     # If error occurs during fetch across rollback or is unable to bind parameters #
     elif db_error == sqlite3.InterfaceError:
         utils.print_err(f'Db interface error: {db_error}', None)
-        utils.logger(conf_obj, f'Db interface error: {db_error}', operation='write', handler='error')
+        utils.logger(conf_obj, f'Db interface error: {db_error}',
+                     operation='write', handler='error')
 
     # If data-related error occurs, such as number out of range and overflowed strings #
     elif db_error == sqlite3.DataError:
         utils.print_err(f'Db data-related error: {db_error}', None)
-        utils.logger(conf_obj, f'Db data-related error: {db_error}', operation='write', handler='error')
+        utils.logger(conf_obj, f'Db data-related error: {db_error}',
+                     operation='write', handler='error')
 
     # If database operation error occurs, such as a database path not being found or the failed
     # processing of a transaction #
     elif db_error == sqlite3.OperationalError:
         utils.print_err(f'Db operational error: {db_error}', None)
-        utils.logger(conf_obj, f'Db operational error: {db_error}', operation='write', handler='error')
+        utils.logger(conf_obj, f'Db operational error: {db_error}',
+                     operation='write', handler='error')
 
     # If database relational integrity is affected #
     elif db_error == sqlite3.IntegrityError:
         utils.print_err(f'Db relational integrity error: {db_error}', None)
-        utils.logger(conf_obj, f'Db relational integrity error: {db_error}', operation='write',
-                     handler='error')
+        utils.logger(conf_obj, f'Db relational integrity error: {db_error}',
+                     operation='write', handler='error')
 
     # If sqlite3 internal error occurs, suggesting a potential runtime library issue #
     elif db_error == sqlite3.InternalError:
         utils.print_err(f'Db sqlite3 internal runtime error: {db_error}', None)
-        utils.logger(conf_obj, f'Db sqlite3 internal runtime error: {db_error}', operation='write',
-                     handler='error')
+        utils.logger(conf_obj, f'Db sqlite3 internal runtime error: {db_error}',
+                     operation='write', handler='error')
 
     # If sqlite3 API error occurs, such as trying to operate on a closed connection #
     elif db_error == sqlite3.ProgrammingError:
         utils.print_err(f'Db sqlite3 API operational error: {db_error}', None)
-        utils.logger(conf_obj, f'Db sqlite3 APi operational error: {db_error}', operation='write',
-               handler='error')
+        utils.logger(conf_obj, f'Db sqlite3 APi operational error: {db_error}',
+                     operation='write', handler='error')
 
     # If a called API method is not supported by the underlying SQLite3 runtime library #
     elif db_error == sqlite3.NotSupportedError:
@@ -223,5 +227,5 @@ def db_error_query(conf_obj: object, db_error: object):
     # If unexpected error occurs (shouldn't happen, just in case) #
     else:
         utils.print_err(f'Unexpected database exception: {db_error}', None)
-        utils.logger(conf_obj, f'Unexpected database exception: {db_error}', operation='write',
-                     handler='error')
+        utils.logger(conf_obj, f'Unexpected database exception: {db_error}',
+                     operation='write', handler='error')
