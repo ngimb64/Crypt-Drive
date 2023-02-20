@@ -34,7 +34,7 @@ def db_extract(config_obj: object):
 
     # Confirm the storage database has data to extract #
     query = db_contents(config_obj.db_tables[1])
-    extract_call = query_handler(config_obj, query, fetch='fetchall')
+    extract_call = query_handler(config_obj, query, fetch='all')
 
     # If no data, exit the function #
     if not extract_call:
@@ -139,7 +139,7 @@ def db_store(config_obj: object):
                 rel_path = re.search(r'Documents/[a-zA-Z\d._/\-\'\"]{1,240}$', dir_path)
 
             # Set the current iteration file path #
-            curr_file = dir_path / file
+            curr_file = Path(dir_path) / file
 
             # If file contains extension with metadata #
             if file.endswith(config_obj.meta_exts):
@@ -233,7 +233,7 @@ def decryption(config_obj: object):
         for file in file_names:
             print(f'File: {file}')
             # Set the current iteration file path #
-            curr_file = dir_path / file
+            curr_file = Path(dir_path) / file
             # Read the encrypted file data #
             file_data = file_handler(config_obj, curr_file, 'rb', operation='read')
             # Decrypt the encrypted file data #
@@ -372,7 +372,7 @@ def import_key(config_obj: object):
     # Load user AESCCM decrypt components #
     key = file_handler(config_obj, aesccm_path, 'rb', operation='read')
     nonce = file_handler(config_obj, nonce_path, 'rb', operation='read')
-    aesccm = AESCCM(key)
+    aesccm = AESCCM(key, tag_length=16)
 
     # Read users decrypt & nonce key #
     crypt_key = file_handler(config_obj, key_path, 'rb', operation='read')
@@ -385,8 +385,8 @@ def import_key(config_obj: object):
 
     # If the authentication tag is invalid #
     except InvalidTag:
-        return print_err('Incorrect unlock password entered .. try restarting program or deleting'
-                        ' Keys/Dbs folders', 2)
+        return print_err('Incorrect unlock password entered .. there is an inconsistency with the '
+                         'received key set that does not allow successful import', 2)
 
     # Get the decrypted database key #
     db_key = get_database_comp(config_obj)
@@ -447,7 +447,7 @@ def list_storage(config_obj: object):
     """
     # Fetch the contents of the storage database # #
     query = db_contents(config_obj.db_tables[1])
-    list_call = query_handler(config_obj, query, fetch='fetchall')
+    list_call = query_handler(config_obj, query, fetch='all')
 
     # If no data, exit the function #
     if not list_call:
@@ -460,7 +460,7 @@ def list_storage(config_obj: object):
     return input('\nHit enter to continue ')
 
 
-def key_share(config_obj: object):
+def share_keyset(config_obj: object):
     """
     Share decryption key protected by a password through authentication-based encryption.
 
@@ -487,13 +487,13 @@ def key_share(config_obj: object):
     share_key, share_nonce = cha_decrypt(config_obj)
 
     # Create AESCCM password authenticated key #
-    key = AESCCM.generate_key(bit_length=256)
-    aesccm = AESCCM(key)
-    nonce = os.urandom(13)
+    auth_key = AESCCM.generate_key(bit_length=256)
+    aesccm = AESCCM(auth_key, tag_length=16)
+    auth_nonce = os.urandom(13)
 
     # Encrypt components with temporary password-based encryption #
-    key_crypt = aesccm.encrypt(nonce, share_key, key_pass.encode())
-    key_nonce = aesccm.encrypt(nonce, share_nonce, key_pass.encode())
+    key_crypt = aesccm.encrypt(auth_nonce, share_key, key_pass.encode())
+    key_nonce = aesccm.encrypt(auth_nonce, share_nonce, key_pass.encode())
 
     # Grab username from email with regex & format it to file names #
     user = re.search(r'\w{2,30}(?=@)', send_email)
@@ -505,8 +505,8 @@ def key_share(config_obj: object):
     # Write components to be sent in files #
     file_handler(config_obj, key_path, 'wb', operation='write', data=key_crypt)
     file_handler(config_obj, key_nonce_path, 'wb', operation='write', data=key_nonce)
-    file_handler(config_obj, aesccm_path, 'wb', operation='write', data=key)
-    file_handler(config_obj, nonce_path, 'wb', operation='write', data=nonce)
+    file_handler(config_obj, aesccm_path, 'wb', operation='write', data=auth_key)
+    file_handler(config_obj, nonce_path, 'wb', operation='write', data=auth_nonce)
 
     # Group message data to be iterated over #
     body = ('Attached below is your encrypted decryption key .. download and move to import folder',

@@ -16,13 +16,13 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHash, VerifyMismatchError
 from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from keyring import get_password
 from keyring.errors import KeyringError
 from pyfiglet import Figlet
 # Custom Modules #
 from Modules.db_handlers import DbConnectionHandler, db_error_query
-from Modules.menu_functions import decryption, db_extract, db_store, import_key, key_share, \
+from Modules.menu_functions import decryption, db_extract, db_store, import_key, share_keyset, \
                                    list_drive, list_storage, upload
 from Modules.utils import component_handler, db_check, hd_crawl, logger, login_timeout, print_err, \
                           recycle_check, sys_lock
@@ -91,7 +91,7 @@ def main_menu(config: object):
 
         # Share private key with user #
         elif prompt == 'share':
-            key_share(config)
+            share_keyset(config)
 
         # Exit the program #
         elif prompt == 'exit':
@@ -326,7 +326,7 @@ class ProgramConfig:
                 self.missing.append(item)
 
         # Program cryptographic components #
-        self.aesccm = b''
+        self.aesgcm = b''
         self.nonce = b''
         self.db_key = b''
         self.secret_key = b''
@@ -352,17 +352,17 @@ class ProgramConfig:
 
     def decrypt_db_key(self, secret: str) -> bytes:
         """
-        Decrypt the database key with aesccm authenticated.
+        Decrypt the database key with aesgcm authenticated.
 
         :param secret:  Encrypted password hash to be decrypted.
         :return:  Decrypted database key.
         """
-        # Initialize AESCCM algo object #
-        aesccm = AESCCM(self.aesccm, 256 // 8)
+        # Initialize AESGCM algo object #
+        aesgcm = AESGCM(self.aesgcm)
 
         try:
             # Decrypt database Fernet key #
-            plain = aesccm.decrypt(self.nonce, self.db_key, secret)
+            plain = aesgcm.decrypt(self.nonce, self.db_key, secret)
 
         # If authentication tag is invalid #
         except (InvalidTag, ValueError) as crypt_err:

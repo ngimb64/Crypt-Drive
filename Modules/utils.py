@@ -23,7 +23,7 @@ from exif import Image
 from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # If OS is Windows #
 if os.name == 'nt':
     from winshell import undelete, x_not_found_in_recycle_bin
@@ -141,11 +141,11 @@ def db_check(config: object, secret: bytes) -> object:
     nonce = file_handler(config, config.files[1], 'rb', operation='read')
     crypt = file_handler(config, config.files[2], 'rb', operation='read')
     secret_key = file_handler(config, config.files[3], 'rb', operation='read')
-    aesccm = AESCCM(key)
+    aesgcm = AESGCM(key)
 
     # Unlock the local database key #
     try:
-        db_key = aesccm.decrypt(nonce, crypt, secret)
+        db_key = aesgcm.decrypt(nonce, crypt, secret)
 
     # If authentication tag is invalid #
     except (InvalidTag, TypeError, ValueError):
@@ -156,7 +156,7 @@ def db_check(config: object, secret: bytes) -> object:
     crypt_secret = Fernet(secret_key).encrypt(secret)
 
     # Populate the authentication object #
-    config.aesccm = key
+    config.aesgcm = key
     config.nonce = nonce
     config.db_key = crypt
     config.secret_key = secret_key
@@ -187,12 +187,12 @@ def db_check(config: object, secret: bytes) -> object:
                     if not upload_call:
                         print('Creating new upload key ..')
                         # Recreate 32 byte upload key and store to keys database #
-                        key_recreate(config, db_key, 32, config.db_tables[0], 'upload_key')
+                        key_recreate(config, db_key, 256 // 8, config.db_tables[0], 'upload_key')
 
                     if not nonce_call:
                         print('Creating new upload nonce')
                         # Recreate 16 byte upload nonce and store to keys database #
-                        key_recreate(config, db_key, 16, config.db_tables[0], 'upload_nonce')
+                        key_recreate(config, db_key, 128 // 8, config.db_tables[0], 'upload_nonce')
 
                 else:
                     # Confirm retrieved upload key/nonce properly decode & decrypt #
@@ -327,11 +327,11 @@ def fetch_upload_comps(config_obj: object, key_name: str, nonce_name: str) -> tu
     """
     # Retrieve decrypt key from keys table #
     query = db_handlers.db_retrieve(config_obj.db_tables[0])
-    decrypt_query = db_handlers.query_handler(config_obj, query, key_name, fetch='fetchone')
+    decrypt_query = db_handlers.query_handler(config_obj, query, key_name, fetch='one')
 
     # Retrieve nonce from keys table #
     query = db_handlers.db_retrieve(config_obj.db_tables[0])
-    nonce_query = db_handlers.query_handler(config_obj, query, nonce_name, fetch='fetchone')
+    nonce_query = db_handlers.query_handler(config_obj, query, nonce_name, fetch='one')
 
     # Return fetched query results #
     return decrypt_query, nonce_query
@@ -642,30 +642,27 @@ def make_keys(config: object, password: bytes) -> object:
     db_key = Fernet.generate_key()
     secret_key = Fernet.generate_key()
 
-    # Encrypt ChaCha20 symmetric components (256-bit key, 128-bit nonce) #
-    upload_key = Fernet(db_key).encrypt(os.urandom(256 // 8))
-    cha_nonce = Fernet(db_key).encrypt(os.urandom(128 // 8))
-
-    # Base64 encode upload components for db storage #
-    upload_key = b64encode(upload_key)
-    cha_nonce = b64encode(cha_nonce)
-
     # Encrypt the hashed input #
     crypt_hash = Fernet(secret_key).encrypt(input_hash.encode())
-
-    # AESCCM password authenticated key #
-    key = AESCCM.generate_key(bit_length=256)
-    aesccm = AESCCM(key)
-    nonce = os.urandom(104 // 8)
-
-    # Encrypt the db fernet key with AESCCM password key & write to file #
-    crypt_db = aesccm.encrypt(nonce, db_key, password)
-
     # Add encrypted password hash to key ring #
     keyring.set_password('CryptDrive', 'CryptUser', crypt_hash.decode('utf-8'))
 
+    # Encrypt AESGCM symmetric upload components (256-bit key, 96-bit nonce) #
+    upload_key = Fernet(db_key).encrypt(AESGCM.generate_key(bit_length=256))
+    upload_nonce = Fernet(db_key).encrypt(os.urandom(96 // 8))
+    # Base64 encode upload components for db storage #
+    upload_key = b64encode(upload_key)
+    upload_nonce = b64encode(upload_nonce)
+
+    # AESCCM password authenticated key #
+    key = AESGCM.generate_key(bit_length=256)
+    nonce = os.urandom(96 // 8)
+    aesgcm = AESGCM(key)
+    # Encrypt the db fernet key with AESCCM password key & write to file #
+    crypt_db = aesgcm.encrypt(nonce, db_key, password)
+
     # Set authentication object variables #
-    config.aesccm = key
+    config.aesgcm = key
     config.nonce = nonce
     config.db_key = crypt_db
     config.secret_key = secret_key
@@ -677,7 +674,7 @@ def make_keys(config: object, password: bytes) -> object:
 
     # Send encrypted ChaCha20 nonce to keys database #
     query = db_handlers.key_insert(config.db_tables[0])
-    db_handlers.query_handler(config, query, 'upload_nonce', cha_nonce.decode('utf-8'))
+    db_handlers.query_handler(config, query, 'upload_nonce', upload_nonce.decode('utf-8'))
 
     # Write AESCCM key and nonce to files #
     file_handler(config, config.files[0], 'wb', operation='write', data=key)
@@ -772,7 +769,7 @@ def msg_format(send_email: str, receiver: str, body: str, files: tuple) -> MIMEM
         # Encode & attach current file #
         encoders.encode_base64(payload)
         # Add header to attachment #
-        payload.add_header('Content-Disposition', f'attachment;filename = {str(file)}')
+        payload.add_header('Content-Disposition', f'attachment;filename = {str(file.name)}')
         # Attach attachment to email #
         msg.attach(payload)
 
@@ -834,7 +831,7 @@ def recycle_check(config_obj: object) -> object:
     # Iterate through missing components #
     for item in config_obj.missing:
         # If item is file #
-        if item in (config_obj.files + config_obj.db_name):
+        if item in (config_obj.db_name + config_obj.files):
             # Parse file without extension out of path #
             re_item = re.search(config_obj.re_no_ext, str(item))
             # If the item is a cryptographic file #
@@ -941,12 +938,13 @@ def write_log(conf: object, db_key: bytes):
     :return:  Nothing
     """
     # Get log message in variable #
-    log_msg = conf.LOG_STREAM.getvalue()
+    log_msg = conf.log_stream.getvalue()
+    # Encrypt log data #
+    crypt = encrypt_db_data(db_key, log_msg.encode())
 
     try:
+        # Write encrypted log data to file #
         with conf.log_name.open('w', encoding='utf-8') as file:
-            # Encrypt log data & store on file #
-            crypt = encrypt_db_data(db_key, log_msg.encode())
             file.write(crypt)
 
     except (IOError, OSError) as err:
