@@ -92,13 +92,7 @@ the new key set to be able to decrypt it.
 > &emsp; get_plain_secret &nbsp;-&nbsp; Decrypt the encrypted hash secret.<br>
 > &emsp; decrypt_db_key &nbsp;-&nbsp; Decrypt the database key with aesccm authenticated.
 
--- globals.py -- 
-> initialize &nbsp;-&nbsp; Initializes variables for global access.
-
-> dir_check &nbsp;-&nbsp; Check if directory exists.
-
-> file_check &nbsp;-&nbsp; Check if file exists.
-
+-- db_handlers.py -- 
 > db_keys &nbsp;-&nbsp; Format MySQL query for Keys database table creation.
 
 > db_storage &nbsp;-&nbsp; Format MySQL query for Storage database table creation.
@@ -163,18 +157,8 @@ the new key set to be able to decrypt it.
 > upload_stage &nbsp;-&nbsp; Makes of copy of file data to be uploaded in the UploadDock folder.
 
 -- utils.py --
-> cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.
-
-> cha_decrypt &nbsp;-&nbsp; Retrieve ChaCha components from Keys db, decoding and decrypting them.
-
-> CompiledRegex &nbsp;-&nbsp; Class for grouping numerous compiled regex.
-
 > component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
 > operation.
-
-> create_databases &nbsp;-&nbsp; Creates database components.
-
-> create_dirs &nbsp;-&nbsp; Creates program component directories.
 
 > data_copy &nbsp;-&nbsp; Copies data from source to destination.
 
@@ -232,7 +216,7 @@ the new key set to be able to decrypt it.
 > secure_delete &nbsp;-&nbsp; Overwrite file data with random data number of specified passes and 
 > delete.
 
-> system_cmd &nbsp;-&nbsp; Execute shell-escaped command.
+> symm_retrieve &nbsp;-&nbsp; Retrieve symmetrical cryptographic components from Keys db, decoding and decrypting them.
 
 > sys_lock &nbsp;-&nbsp; Attempts to lockdown (Windows) or power-off system (Linux), if either fail 
 > the program exits with error code.

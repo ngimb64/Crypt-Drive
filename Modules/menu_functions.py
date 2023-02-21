@@ -4,39 +4,36 @@ import os
 import re
 from base64 import b64encode, b64decode
 from getpass import getuser
+from pathlib import Path
 from shutil import rmtree
 # External Modules #
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
 # Custom Modules #
-import Modules.globals as global_vars
+from Modules.db_handlers import data_insert, db_contents, db_delete, key_insert, query_handler
 from Modules.menu_utils import upload_dir_handler, decrypt_input, extract_input, extract_parse, \
                                import_input, meta_handler, share_input, store_input, \
                                upload_extract, upload_input, upload_stage
-from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
-                          fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
-                          msg_format, msg_send, print_err, query_handler, secure_delete
+from Modules.utils import encrypt_db_data, file_handler, get_database_comp, meta_strip, \
+                          msg_format, msg_send, print_err, secure_delete, symm_decrypt, \
+                          symm_encrypt, symm_retrieve
 
 
-def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
+def db_extract(config_obj: object):
     """
     Extracts data from local storage database in encrypted or plain text.
 
-    :param dbs:  The database name tuple.
-    :param auth_obj:  The authentication instance.
-    :param re_path:  Compiled regex to match input path.
-    :param re_dir:  Compiled regex to match input directory to recursively extract from storage db.
+    :config_obj:  The program configuration instance.
     :return:  Prints successful operation or error message.
     """
-    decryptor = None
     # Prompt user for needed inputs to perform extraction #
-    folder, path, is_crypt, is_deleted = extract_input(re_dir, re_path)
+    folder, path, is_crypt, is_deleted = extract_input(config_obj)
 
     # Confirm the storage database has data to extract #
-    query = global_vars.db_contents(dbs[1])
-    extract_call = query_handler(dbs[1], query, auth_obj, operation='fetchall')
+    query = db_contents(config_obj.db_tables[1])
+    extract_call = query_handler(config_obj, query, fetch='all')
 
     # If no data, exit the function #
     if not extract_call:
@@ -45,18 +42,16 @@ def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
     # If data is to be extracted in plain text #
     if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = cha_decrypt(auth_obj, dbs[0])
-        # Initialize the ChaCha20 algo object #
-        algo = cha_init(key, nonce)
-        # Set the algo object as decryptor #
-        decryptor = algo.decryptor()
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     # Compile regex based on folder passed in #
     re_folder = re.compile(f'{re.escape(folder)}')
-    # Compile regex for parsing out Documents from stored path #
-    re_rel_winpath = re.compile(r'(?<=\\)[a-zA-Z\d_.\\\-\'\"]{1,240}')
-    re_rel_linpath = re.compile(r'(?<=/)[a-zA-Z\d_./\-\'\"]{1,240}')
-
     # Get username of currently logged-in user #
     usr = getuser()
 
@@ -72,69 +67,63 @@ def db_extract(dbs: tuple, auth_obj: object, re_path, re_dir):
             # If data is to be extracted in plain text #
             if is_crypt == 'plain':
                 # Decrypt the data #
-                text = decryptor.update(text)
+                text = symm_decrypt(key, nonce, text)
 
             # If user wants to use saved path in db #
             if not path:
                 # If OS is Windows #
                 if os.name == 'nt':
-                    file_path = f'C:\\Users\\{usr}\\{row[1]}\\{row[0]}'
+                    base_path = Path('C:\\Users') / usr
                 # If OS is Linux #
                 else:
-                    file_path = f'/home/{usr}/{row[1]}/{row[0]}'
+                    base_path = Path('/home') / usr
 
+                # Parse base path with stored file path #
+                file_path = extract_parse(config_obj, row, base_path)
                 # Confirm all directories in file path exist #
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                file_path.parents[0].mkdir(parents=True, exist_ok=True)
                 # Write data to path saved in db #
-                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
-
+                file_handler(config_obj, file_path, 'wb', operation='write', data=text)
             # User specified file path #
             else:
-                # Validate and format extraction file path #
-                file_path = extract_parse(re_rel_winpath, re_rel_linpath, row, path)
-
+                # Format file path based on used input #
+                file_path = Path(path) / folder / row[0]
                 # Confirm all directories in file path exist #
-                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                file_path.parents[0].mkdir(parents=True, exist_ok=True)
                 # Write data to path specified by user input #
-                file_handler(file_path, 'wb', auth_obj, operation='write', data=text)
+                file_handler(config_obj, file_path, 'wb', operation='write', data=text)
 
             print(f'File: {row[0]}')
 
+            # If the user wants to delete data after extraction #
             if is_deleted == 'y':
                 # Delete item from storage database #
-                query = global_vars.db_delete(dbs[1], row[0])
-                query_handler(dbs[1], query, auth_obj)
+                query = db_delete(config_obj.db_tables[1])
+                query_handler(config_obj.db_tables[1], query, row[0])
 
     return print(f'\n\n[SUCCESS] Files from {folder} have been extracted')
 
 
-def db_store(dbs: tuple, auth_obj: object, re_path):
+def db_store(config_obj: object):
     """
     Encrypts and inserts data into storage database.
 
-    :param dbs: The database name tuple.
-    :param auth_obj:  The authentication instance.
-    :param re_path:  Compiled regex to match input path.
+    :param config_obj:  The program configuration instance.
     :return:  Nothing
     """
-    encryptor = None
-
     # Prompt user for needed inputs to perform extraction #
-    path, is_crypt, is_deleted = store_input(re_path)
+    path, is_crypt, is_deleted = store_input(config_obj)
 
     # If the data to be stored is in plain text #
     if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = cha_decrypt(auth_obj, dbs[0])
-        # Initialize the ChaCha20 algo object #
-        algo = cha_init(key, nonce)
-        # Set the algo object to encryptor #
-        encryptor = algo.encryptor()
-
-    # List of metadata file extension types #
-    ext = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
-           '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf',
-           '.png', '.pptx', '.rar', '.wav', '.wma', '.zip')
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     print(f'\nStoring path in database:\n{21 * "*"}\n')
 
@@ -148,14 +137,15 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
             # If OS is Linux #
             if os.name == 'nt':
                 rel_path = re.search(r'Documents\\[a-zA-Z\d._\\\-\'\"]{1,240}$', dir_path)
-                curr_file = f'{dir_path}\\{file}'
             # If OS is Linux #
             else:
                 rel_path = re.search(r'Documents/[a-zA-Z\d._/\-\'\"]{1,240}$', dir_path)
-                curr_file = f'{dir_path}/{file}'
+
+            # Set the current iteration file path #
+            curr_file = Path(dir_path) / file
 
             # If file contains extension with metadata #
-            if file.endswith(ext):
+            if file.endswith(config_obj.meta_exts):
                 # Strip all the metadata before storing #
                 strip = meta_strip(curr_file)
                 # If metadata strip failed, avoid storing #
@@ -163,12 +153,12 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
                     continue
 
             # Read file data #
-            file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
+            file_data = file_handler(config_obj, curr_file, 'rb', operation='read')
 
             # If in plain text, encrypt it #
             if is_crypt == 'plain':
                 # Encrypt the plain text data #
-                crypt = encryptor.update(file_data)
+                crypt = symm_encrypt(key, nonce, file_data)
                 # Encrypted data is base64 encoded for storage #
                 data = b64encode(crypt).decode()
             else:
@@ -182,8 +172,8 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
                 relative_path = None
 
             # Path is stored like "Documents\path\to\folder", file is stored as the name #
-            query = global_vars.db_store(dbs[1], file, relative_path, data)
-            query_handler(dbs[1], query, auth_obj)
+            query = data_insert(config_obj.db_tables[1])
+            query_handler(config_obj, query, file, relative_path, data)
 
             print(f'File: {file}')
 
@@ -195,24 +185,20 @@ def db_store(dbs: tuple, auth_obj: object, re_path):
     if is_deleted == 'y':
         # Recursively delete leftover empty folders
         for dir_path, dir_names, _ in os.walk(path):
-            [rmtree(f'{dir_path}\\{folder}') if os.name == 'nt'
-             else rmtree(f'{dir_path}/{folder}') for folder in dir_names]
+            [rmtree(Path(dir_path) / dir_name) for dir_name in dir_names]
 
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
 
-def decryption(db_name: str, auth_obj: object, re_user, re_path):
+def decryption(config_obj: object):
     """
     Decrypts data located on the file system.
 
-    :param db_name:  The key's database name syntax.
-    :param auth_obj:  The authentication instance.
-    :param re_user:  Compiled regex to match input username.
-    :param re_path:  Compiled regex to match input path.
+    :param config_obj:  The program configuration object.
     :return:  Prints successful operation or error message.
     """
     # Prompt user for needed inputs to perform decryption #
-    user, local_path = decrypt_input(re_user, re_path)
+    user, local_path = decrypt_input(config_obj)
 
     # If local user is specified #
     if user == '':
@@ -222,24 +208,12 @@ def decryption(db_name: str, auth_obj: object, re_user, re_path):
         user_key = f'{user}_decrypt'
         user_nonce = f'{user}_nonce'
 
-    # Get the decrypted database key #
-    db_key = get_database_comp(auth_obj)
-    # Attempt to Retrieve the upload key and nonce from Keys db #
-    decrypt_call, nonce_call = fetch_upload_comps(db_name, user_key, user_nonce, auth_obj)
-
-    # If decrypt key doesn't exist in db #
-    if not decrypt_call or not nonce_call:
+    # Retrieve nonce from Keys db, then decode and decrypt #
+    decrypt_key, decrypt_nonce = symm_retrieve(config_obj, user_key, user_nonce)
+    # If the key retrieval failed #
+    if not decrypt_key or not decrypt_nonce:
         return print_err('Database missing decrypt component .. exit and'
                          ' restart program to fix issue', 2)
-
-    # Decrypt key & nonce #
-    decrypt_key = decrypt_db_data(db_key, decrypt_call[1])
-    decrypt_nonce = decrypt_db_data(db_key, nonce_call[1])
-
-    # Initialize the ChaCha20 algo object #
-    algo = cha_init(decrypt_key, decrypt_nonce)
-    # Set the object as decryptor #
-    decryptor = algo.decryptor()
 
     print(f'\nDecrypting files in path:\n{26 * "*"}\n')
 
@@ -249,22 +223,16 @@ def decryption(db_name: str, auth_obj: object, re_user, re_path):
 
         for file in file_names:
             print(f'File: {file}')
-
-            # If OS is Windows #
-            if os.name == 'nt':
-                curr_file = f'{dir_path}\\{file}'
-            # If OS is Linux #
-            else:
-                curr_file = f'{dir_path}/{file}'
-
+            # Set the current iteration file path #
+            curr_file = Path(dir_path) / file
             # Read the encrypted file data #
-            file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
+            file_data = file_handler(config_obj, curr_file, 'rb', operation='read')
             # Decrypt the encrypted file data #
-            plain = decryptor.update(file_data)
+            plain = symm_decrypt(decrypt_key, decrypt_nonce, file_data)
             # Delete the encrypted file data #
             secure_delete(curr_file)
             # Re-write the plain text data to file #
-            file_handler(curr_file, 'wb', auth_obj, operation='write', data=plain)
+            file_handler(config_obj, curr_file, 'wb', operation='write', data=plain)
 
     return print('\n\n[SUCCESS] Data has been decrypted')
 
@@ -283,27 +251,17 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
     """
     # If upload is in the root dir #
     if not up_path:
-        # If OS is Windows #
-        if os.name == 'nt':
-            curr_file = f'{dir_path}\\{file}'
-        # If OS is Linux #
-        else:
-            curr_file = f'{dir_path}/{file}'
-
+        # Set the current file path #
+        curr_file = Path(dir_path) / file
         # Create Drive file object #
         file_obj = drive.CreateFile({'title': file})
         # Set Drive object content to locally stored file #
-        file_obj.SetContentFile(curr_file)
+        file_obj.SetContentFile(str(curr_file))
         # Upload file & pass http object into upload call #
         file_obj.Upload(param={'http': http})
     else:
-        # If OS is Windows #
-        if os.name == 'nt':
-            curr_file = f'{dir_path}\\{local_path}\\{file}'
-        # If OS is Linux #
-        else:
-            curr_file = f'{dir_path}/{local_path}/{file}'
-
+        # Set the current file path #
+        curr_file = Path(dir_path) / local_path / file
         # Get List of folders in upload path #
         folders = drive.ListFile({'q': 'title=\'' + up_path + '\' and mimeType=''\'application/vnd.'
                                        'google-apps.folder\' and trashed=false'}).GetList()
@@ -314,13 +272,14 @@ def file_upload(drive: object, up_path, dir_path: str, file: str, http: object, 
                 # Create Drive file object in parent dir #
                 file_obj = drive.CreateFile({'title': file, 'parents': [{'id': folder['id']}]})
                 # Set Drive object content to locally stored file in recursive dir #
-                file_obj.SetContentFile(curr_file)
+                file_obj.SetContentFile(str(curr_file))
                 # Upload & pass http object into upload call #
                 file_obj.Upload(param={'http': http})
                 break
 
 
-def folder_upload(drive: object, parent_dir, dir_list: list, http: object, parent_id: str):
+def folder_upload(drive: object, parent_dir, dir_list: list, http: object,
+                  parent_id: str) -> str | None:
     """
     Recursively uploads folders to Drive.
 
@@ -329,7 +288,7 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
     :param dir_list:  List of subdirectories to be created.
     :param http:  Http session instance.
     :param parent_id:  The current id of parent folder
-    :return:  The update id of parent folder.
+    :return:  The update id of parent folder, None if empty list is passed in for some reason.
     """
     add_id = ''
 
@@ -344,7 +303,6 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
                                            'mimeType': 'application/vnd.google-apps.folder'})
                 # Upload & pass http object into upload call #
                 folder.Upload(param={'http': http})
-
                 print(f'Directory: {directory}')
             else:
                 # Get list of folders based on parent id #
@@ -362,7 +320,6 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
                                                   )
                         # Upload & pass http object into upload call #
                         parent.Upload(param={'http': http})
-
                         print(f'Directory: {directory}')
 
                         # Update parent id for next iteration #
@@ -377,75 +334,65 @@ def folder_upload(drive: object, parent_dir, dir_list: list, http: object, paren
         # Set added sub-folder id #
         return add_id
 
+    # Follows pylint return all or None rule #
     return None
 
 
-def import_key(db_names: str, auth_obj: object, re_user, re_pass):
+def import_key(config_obj: object):
     """
     Import user's key to the encrypted local key database.
 
-    :param db_names:  Database name tuple.
-    :param auth_obj:  The authentication instance.
-    :param re_user:  Compiled regex to match input username.
-    :param re_pass:  Compiled regex to match input user password.
+    :param config_obj:  The program configuration instance.
     :return:  Prints successful operation or error message.
     """
     # Prompt user for needed inputs to perform key import #
-    user, user_pass = import_input(re_user, re_pass)
+    user, user_pass = import_input(config_obj)
 
-    # If OS is Windows #
-    if os.name == 'nt':
-        key_path = f'{global_vars.DIRS[1]}\\{user}_decrypt.txt'
-        key_nonce_path = f'{global_vars.DIRS[1]}\\{user}_key_nonce.txt'
-        aesccm_path = f'{global_vars.DIRS[1]}\\{user}_aesccm.txt'
-        nonce_path = f'{global_vars.DIRS[1]}\\{user}_nonce.txt'
-    # If OS is Linux #
-    else:
-        key_path = f'{global_vars.DIRS[1]}/{user}_decrypt.txt'
-        key_nonce_path = f'{global_vars.DIRS[1]}/{user}_key_nonce.txt'
-        aesccm_path = f'{global_vars.DIRS[1]}/{user}_aesccm.txt'
-        nonce_path = f'{global_vars.DIRS[1]}/{user}_nonce.txt'
+    key_path = Path(config_obj.dirs[1]) / f'{user}_decrypt.txt'
+    key_nonce_path = Path(config_obj.dirs[1]) / f'{user}_key_nonce.txt'
+    aesccm_path = Path(config_obj.dirs[1]) / f'{user}_aesccm.txt'
+    nonce_path = Path(config_obj.dirs[1]) / f'{user}_nonce.txt'
 
     # Confirm all critical files to operation are present #
-    if not global_vars.file_check(key_path) or not global_vars.file_check(key_nonce_path) \
-    or not global_vars.file_check(aesccm_path) or not global_vars.file_check(nonce_path):
+    if not key_path.exists() or not key_nonce_path.exists() \
+    or not aesccm_path.exists() or not nonce_path.exists():
         return print_err('A component needed for importing key is missing, 4 files are required in'
                         ' the Import directory:\n[user]_decrypt.txt, [user]_key_nonce.txt,'
                         ' [user]_aesccm.txt, [user]_nonce.txt', 2.5)
 
     # Load user AESCCM decrypt components #
-    key = file_handler(aesccm_path, 'rb', auth_obj, operation='read')
-    nonce = file_handler(nonce_path, 'rb', auth_obj, operation='read')
-    aesccm = AESCCM(key)
+    key = file_handler(config_obj, aesccm_path, 'rb', operation='read')
+    nonce = file_handler(config_obj, nonce_path, 'rb', operation='read')
+    aesgcm = AESGCM(key)
 
     # Read users decrypt & nonce key #
-    crypt_key = file_handler(key_path, 'rb', auth_obj, operation='read')
-    crypt_nonce = file_handler(key_nonce_path, 'rb', auth_obj, operation='read')
+    crypt_key = file_handler(config_obj, key_path, 'rb', operation='read')
+    crypt_nonce = file_handler(config_obj, key_nonce_path, 'rb', operation='read')
 
     # Unlock users decrypt & nonce key #
     try:
-        user_key = aesccm.decrypt(nonce, crypt_key, user_pass.encode())
-        user_nonce = aesccm.decrypt(nonce, crypt_nonce, user_pass.encode())
+        user_key = aesgcm.decrypt(nonce, crypt_key, user_pass.encode())
+        user_nonce = aesgcm.decrypt(nonce, crypt_nonce, user_pass.encode())
 
     # If the authentication tag is invalid #
     except InvalidTag:
-        return print_err('Incorrect unlock password entered .. try restarting program or deleting'
-                        ' Keys/Dbs folders', 2)
+        return print_err('Incorrect unlock password entered .. there is an inconsistency with the '
+                         'received key set that does not allow successful import', 2)
 
     # Get the decrypted database key #
-    db_key = get_database_comp(auth_obj)
+    db_key = get_database_comp(config_obj)
 
     # Encrypt user components #
     upload_key = encrypt_db_data(db_key, user_key)
     upload_nonce = encrypt_db_data(db_key, user_nonce)
 
-    # Send users decrypt key to key database #
-    query = global_vars.db_insert(db_names, f'{user}_decrypt', upload_key)
-    query_handler(db_names, query, auth_obj)
+    # Send users decrypt key to keys database #
+    query = key_insert(config_obj.db_tables[0])
+    query_handler(config_obj, query, f'{user}_decrypt', upload_key)
 
-    # Send users nonce to database #
-    query = global_vars.db_insert(db_names, f'{user}_nonce', upload_nonce)
-    query_handler(db_names, query, auth_obj)
+    # Send users nonce to keys database #
+    query = key_insert(config_obj.db_tables[0])
+    query_handler(config_obj, query, f'{user}_nonce', upload_nonce)
 
     # Delete file in Import dir #
     [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
@@ -482,17 +429,16 @@ def list_drive():
     input('\nHit enter to continue ')
 
 
-def list_storage(db_name: str, auth_obj: object):
+def list_storage(config_obj: object):
     """
     List the contents of the local storage database.
 
-    :param db_name:  Storage database name.
-    :param auth_obj:  The authentication instance.
+    :param config_obj:  The program configuration instance.
     :return:  Waits for user input to exit or prints error message.
     """
     # Fetch the contents of the storage database # #
-    query = global_vars.db_contents(db_name)
-    list_call = query_handler(db_name, query, auth_obj, operation='fetchall')
+    query = db_contents(config_obj.db_tables[1])
+    list_call = query_handler(config_obj, query, fetch='all')
 
     # If no data, exit the function #
     if not list_call:
@@ -500,70 +446,58 @@ def list_storage(db_name: str, auth_obj: object):
 
     print(f'\nStorage Database Contents\n{(26 * "*")}\n')
     # Print the results of the retrieved database #
-    [print(f'File name:  {row[0]:30s}  Saved path:  {row[1]:30s}') for row in list_call]
+    [print(f'File name:  {row[0]:30s}  Saved path:  {row[1]}') for row in list_call]
 
     return input('\nHit enter to continue ')
 
 
-def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
+def share_keyset(config_obj: object):
     """
     Share decryption key protected by a password through authentication-based encryption.
 
-    :param db_name:  Keys database name.
-    :param auth_obj:  The authentication instance.
-    :param re_email:  Compiled regex for email address matching.
-    :param re_pass:  Compiled regex for password matching.
-    :param re_phone:  Compiled regex for phone number matching.
+    :param config_obj:  The program configuration instance.
     :return:  Nothing
     """
-    # If OS is Windows #
-    if os.name == 'nt':
-        app_secret = f'{global_vars.CWD}\\AppSecret.txt'
-    # If OS is Linux #
-    else:
-        app_secret = f'{global_vars.CWD}/AppSecret.txt'
+    app_secret = Path(config_obj.cwd) / 'AppSecret.txt'
 
     # If AppSecret for Gmail login is missing #
-    if not global_vars.file_check(app_secret):
+    if not app_secret.exists():
         return print_err('Missing application password (AppSecret.txt) to login Gmail API, '
                          'generate password on Google account and save in AppSecret.txt in'
                          ' main dir', 2)
 
     # Load app password from file #
-    email_pass = file_handler(app_secret, 'r', auth_obj, 'read')
+    email_pass = file_handler(config_obj, app_secret, 'r', 'read')
     # Prompt user for needed inputs to perform key sharing #
     send_email, recv_email, recv_email2, \
-    recv_phone, provider, key_pass = share_input(re_email, re_phone, re_pass)
+    recv_phone, provider, key_pass = share_input(config_obj)
 
     receivers = (recv_email, recv_email2, f'{recv_phone}@{provider}')
 
     # Retrieve and decrypt ChaCha20 components #
-    share_key, share_nonce = cha_decrypt(auth_obj, db_name)
+    share_key, share_nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
 
-    # Create AESCCM password authenticated key #
-    key = AESCCM.generate_key(bit_length=256)
-    aesccm = AESCCM(key)
-    nonce = os.urandom(13)
+    # Create AESGCM password authenticated key #
+    auth_key = AESGCM.generate_key(bit_length=256)
+    aesgcm = AESGCM(auth_key)
+    auth_nonce = os.urandom(96 // 8)
 
     # Encrypt components with temporary password-based encryption #
-    key_crypt = aesccm.encrypt(nonce, share_key, key_pass.encode())
-    key_nonce = aesccm.encrypt(nonce, share_nonce, key_pass.encode())
-
-    # Change directory into Keys #
-    os.chdir(global_vars.DIRS[3])
+    key_crypt = aesgcm.encrypt(auth_nonce, share_key, key_pass.encode())
+    key_nonce = aesgcm.encrypt(auth_nonce, share_nonce, key_pass.encode())
 
     # Grab username from email with regex & format it to file names #
     user = re.search(r'\w{2,30}(?=@)', send_email)
-    key_path = f'{user.group(0)}_decrypt.txt'
-    key_nonce_path = f'{user.group(0)}_key_nonce.txt'
-    aesccm_path = f'{user.group(0)}_aesccm.txt'
-    nonce_path = f'{user.group(0)}_nonce.txt'
+    key_path = Path(config_obj.dirs[2]) / f'{user.group(0)}_decrypt.txt'
+    key_nonce_path = Path(config_obj.dirs[2]) / f'{user.group(0)}_key_nonce.txt'
+    aesccm_path = Path(config_obj.dirs[2]) / f'{user.group(0)}_aesccm.txt'
+    nonce_path = Path(config_obj.dirs[2]) / f'{user.group(0)}_nonce.txt'
 
     # Write components to be sent in files #
-    file_handler(key_path, 'wb', auth_obj, operation='write', data=key_crypt)
-    file_handler(key_nonce_path, 'wb', auth_obj, operation='write', data=key_nonce)
-    file_handler(aesccm_path, 'wb', auth_obj, operation='write', data=key)
-    file_handler(nonce_path, 'wb', auth_obj, operation='write', data=nonce)
+    file_handler(config_obj, key_path, 'wb', operation='write', data=key_crypt)
+    file_handler(config_obj, key_nonce_path, 'wb', operation='write', data=key_nonce)
+    file_handler(config_obj, aesccm_path, 'wb', operation='write', data=auth_key)
+    file_handler(config_obj, nonce_path, 'wb', operation='write', data=auth_nonce)
 
     # Group message data to be iterated over #
     body = ('Attached below is your encrypted decryption key .. download and move to import folder',
@@ -579,43 +513,40 @@ def key_share(db_name: str, auth_obj: object, re_email, re_pass, re_phone):
         # Format email #
         msg = msg_format(send_email, receiver, body[count], files[count])
         # Send email #
-        msg_send(send_email, receiver, email_pass, msg, auth_obj)
+        msg_send(config_obj, send_email, receiver, email_pass, msg)
         count += 1
 
     # Delete sent items
     [secure_delete(file) for file in (key_path, key_nonce_path, aesccm_path, nonce_path)]
-    # Change dir back into __main__ #
-    os.chdir(global_vars.CWD)
 
     return print('\n\n[SUCCESS] Keys and password successfully sent')
 
 
-def upload(dbs: tuple, auth_obj: object, re_path):
+def upload(config_obj: object):
     """
     Manages encrypted recursive upload to Google Drive.
 
-    :param dbs:  Database name tuple.
-    :param auth_obj:  The authentication instance.
-    :param re_path:  Compiled regex to match input path.
+    :param config_obj:  The program configuration object.
     :return:  Prints successful operation or error message.
     """
-    encryptor = None
     # Prompt user for needed inputs to perform cloud drive upload #
-    local_path, prompt, prompt2, folder, prompt3 = upload_input(re_path)
+    local_path, prompt, prompt2, folder, prompt3 = upload_input(config_obj)
 
     if prompt == 'plain':
-        # Retrieve and decrypt ChaCha20 components #
-        upload_key, upload_nonce = cha_decrypt(auth_obj, dbs[0])
-        # Initialize ChaCha20 encryption algo #
-        algo = cha_init(upload_key, upload_nonce)
-        # Set algo object to encryptor #
-        encryptor = algo.encryptor()
+        # Retrieve nonce from Keys db, then decode and decrypt #
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     # If local_path was passed in as None
     # due to the user selecting storage #
     if not local_path:
         # Extract contents from storage database for upload #
-        upload_extract(dbs, auth_obj, folder, prompt3)
+        upload_extract(config_obj, folder, prompt3)
 
     # Authenticate drive #
     gauth = auth.GoogleAuth()
@@ -647,10 +578,6 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         # Insert path edge regex match into regex to match any path past the edge anchor point #
         re_file_path = re.compile(rf'(?<={re.escape(str(re_path_edge.group(0)))}/).+$')
 
-    # List of file extension types #
-    ext = ('.avi', '.doc', '.docm', '.docx', '.exe', '.gif',
-           '.jpg', '.jpeg', '.m4a', '.mp3', '.mp4', '.pdf',
-           '.png', '.pptx', '.rar', '.wav', '.wma', '.zip')
     parent_id = ''
 
     print(f'\nUploading files in path:\n{25 * "*"}')
@@ -684,7 +611,7 @@ def upload(dbs: tuple, auth_obj: object, re_path):
             # Iterate through folders to upload #
             for dirname in folder_names:
                 # Ensure all the directory's exist #
-                upload_dir_handler(file_path, dirname)
+                upload_dir_handler(config_obj, file_path, dirname)
 
             # If match for local files #
             if not file_path:
@@ -698,33 +625,28 @@ def upload(dbs: tuple, auth_obj: object, re_path):
         if file_names:
             # Iterate through files to upload #
             for file in file_names:
-                # If OS is Windows #
-                if os.name == 'nt':
-                    curr_file = f'{folder_path}\\{file}'
-                # If OS is Linux #
-                else:
-                    curr_file = f'{folder_path}/{file}'
-
+                # Set current file path #
+                curr_file = Path(folder_path) / file
                 # If file is empty ignore and move to next #
-                if not os.stat(curr_file).st_size > 0:
+                if not curr_file.stat().st_size > 0:
                     continue
 
                 # If the UploadDock is not being used  #
-                if local_path != global_vars.DIRS[4]:
+                if local_path != config_obj.dirs[4]:
                     # Read file data #
-                    file_data = file_handler(curr_file, 'rb', auth_obj, operation='read')
+                    file_data = file_handler(config_obj, curr_file, 'rb', operation='read')
 
                     # If in plain text, encrypt it #
                     if prompt == 'plain':
-                        crypt = encryptor.update(file_data)
+                        crypt = symm_encrypt(key, nonce, file_data)
                     else:
                         crypt = file_data
 
                     # Copy write encrypted data to fresh file in UploadDock #
-                    upload_stage(file_path, file, auth_obj, crypt)
+                    upload_stage(config_obj, file_path, file, crypt)
 
                 # If file contains extension suggesting metadata #
-                if file.endswith(ext):
+                if file.endswith(config_obj.meta_exts):
                     # Format path and scrub metadata #
                     strip = meta_handler(file_path, folder_path, file)
                     # If metadata strip failed, avoid uploading #
@@ -734,32 +656,31 @@ def upload(dbs: tuple, auth_obj: object, re_path):
                 # If in root directory #
                 if not file_path:
                     # Upload file to Drive #
-                    file_upload(drive, None, global_vars.DIRS[4], file, http, None)
+                    file_upload(drive, None, config_obj.dirs[4], file, http, None)
                 # If in recursive directory #
                 else:
                     # Upload file to Drive #
-                    file_upload(drive, upload_path, global_vars.DIRS[4], file, http, file_path)
+                    file_upload(drive, upload_path, config_obj.dirs[4], file, http, file_path)
 
                 print(f'File: {file}')
 
                 # If the user wants to delete data after uploading #
                 if prompt2 == 'y':
-                    # If OS is Windows #
-                    if os.name == 'nt':
-                        curr_file = f'{folder_path}\\{file}'
-                    # If OS is Linux #
-                    else:
-                        curr_file = f'{folder_path}/{file}'
-
+                    # Delete the current file #
                     secure_delete(curr_file)
 
     # Clear all data in UploadDock #
-    rmtree(global_vars.DIRS[4])
-    os.mkdir(global_vars.DIRS[4])
+    rmtree(config_obj.dirs[4])
+    # Re-create empty upload dock #
+    config_obj.dirs[4].mkdir(parents=True, exist_ok=True)
 
     if prompt2 == 'y':
+        # Iterate recursively through contents at local path #
         for folder_path, folder_names, _ in os.walk(local_path):
-            [os.rmdir(f'{folder_path}\\{dirname}') if os.name == 'nt'
-             else os.rmdir(f'{folder_path}/{dirname}') for dirname in folder_names]
+            # Iterate through the folders #
+            for folder in folder_names:
+                # Set current folder and remove it #
+                curr_folder = Path(folder_path) / folder
+                curr_folder.rmdir()
 
     return print(f'\n\n[SUCCESS] Files from {local_path} have been uploaded')
