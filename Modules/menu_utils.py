@@ -44,7 +44,7 @@ def extract_input(conf_obj: object) -> tuple:
     while True:
         dir_name = input('Enter folder name to be recursively exported from the database: ')
         exp_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to'
-                     ' or hit enter export in Documents:\n')
+                     ' or hit enter to export to saved path in database:\n')
         crypt_check = input('\nShould the data be extracted in encrypted or plain text'
                        ' (encrypted or plain)? ')
         delete_check = input('\nShould the data extracted be deleted from the data base after'
@@ -66,7 +66,7 @@ def extract_input(conf_obj: object) -> tuple:
     return dir_name, exp_path, crypt_check, delete_check
 
 
-def extract_parse(conf_obj: object, row: list, path: str) -> Path:
+def extract_parse(conf_obj: object, row: list, path: Path) -> Path:
     """
     Attempts to match regex of recursive path on stored file path in extracted database row. If \
     match fails, document is extracted to base directory entered in non-recursive fashion. If \
@@ -85,7 +85,7 @@ def extract_parse(conf_obj: object, row: list, path: str) -> Path:
     # If stored database path fails to match for both OS formats #
     if not win_path_parse or lin_path_parse:
         # Use the base file path #
-        file_path = Path(path) / row[0]
+        file_path = path / row[0]
     else:
         # If OS is Windows #
         if os.name == 'nt':
@@ -106,7 +106,7 @@ def extract_parse(conf_obj: object, row: list, path: str) -> Path:
                 path_parse = row[1]
 
         # Append relative path to user path to recursively rebuild #
-        file_path = Path(path) / path_parse / row[0]
+        file_path = path / path_parse / row[0]
 
     return file_path
 

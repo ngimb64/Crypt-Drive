@@ -157,10 +157,6 @@ the new key set to be able to decrypt it.
 > upload_stage &nbsp;-&nbsp; Makes of copy of file data to be uploaded in the UploadDock folder.
 
 -- utils.py --
-> cha_init &nbsp;-&nbsp; Initializes the ChaCh20 algorithm object.
-
-> cha_decrypt &nbsp;-&nbsp; Retrieve ChaCha components from Keys db, decoding and decrypting them.
-
 > component_handler &nbsp;-&nbsp; Creates various dir, db, and key components required for program 
 > operation.
 
@@ -219,6 +215,8 @@ the new key set to be able to decrypt it.
 
 > secure_delete &nbsp;-&nbsp; Overwrite file data with random data number of specified passes and 
 > delete.
+
+> symm_retrieve &nbsp;-&nbsp; Retrieve symmetrical cryptographic components from Keys db, decoding and decrypting them.
 
 > sys_lock &nbsp;-&nbsp; Attempts to lockdown (Windows) or power-off system (Linux), if either fail 
 > the program exits with error code.

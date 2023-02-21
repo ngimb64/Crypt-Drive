@@ -7,7 +7,7 @@ from getpass import getuser
 from pathlib import Path
 from shutil import rmtree
 # External Modules #
-from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 from pydrive2 import auth
 from pydrive2.drive import GoogleDrive
@@ -16,9 +16,9 @@ from Modules.db_handlers import data_insert, db_contents, db_delete, key_insert,
 from Modules.menu_utils import upload_dir_handler, decrypt_input, extract_input, extract_parse, \
                                import_input, meta_handler, share_input, store_input, \
                                upload_extract, upload_input, upload_stage
-from Modules.utils import decrypt_db_data, cha_init, cha_decrypt, encrypt_db_data, \
-                          fetch_upload_comps, file_handler, get_database_comp, meta_strip, \
-                          msg_format, msg_send, print_err, secure_delete
+from Modules.utils import encrypt_db_data, file_handler, get_database_comp, meta_strip, \
+                          msg_format, msg_send, print_err, secure_delete, symm_decrypt, \
+                          symm_encrypt, symm_retrieve
 
 
 def db_extract(config_obj: object):
@@ -28,7 +28,6 @@ def db_extract(config_obj: object):
     :config_obj:  The program configuration instance.
     :return:  Prints successful operation or error message.
     """
-    decryptor = None
     # Prompt user for needed inputs to perform extraction #
     folder, path, is_crypt, is_deleted = extract_input(config_obj)
 
@@ -43,11 +42,13 @@ def db_extract(config_obj: object):
     # If data is to be extracted in plain text #
     if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = cha_decrypt(config_obj)
-        # Initialize the ChaCha20 algo object #
-        algo = cha_init(key, nonce)
-        # Set the algo object as decryptor #
-        decryptor = algo.decryptor()
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     # Compile regex based on folder passed in #
     re_folder = re.compile(f'{re.escape(folder)}')
@@ -66,33 +67,35 @@ def db_extract(config_obj: object):
             # If data is to be extracted in plain text #
             if is_crypt == 'plain':
                 # Decrypt the data #
-                text = decryptor.update(text)
+                text = symm_decrypt(key, nonce, text)
 
             # If user wants to use saved path in db #
             if not path:
                 # If OS is Windows #
                 if os.name == 'nt':
-                    file_path = Path('C:\\Users') / usr / row[1] / row[0]
+                    base_path = Path('C:\\Users') / usr
                 # If OS is Linux #
                 else:
-                    file_path = Path('/home') / usr / row[1] / row[0]
+                    base_path = Path('/home') / usr
 
+                # Parse base path with stored file path #
+                file_path = extract_parse(config_obj, row, base_path)
                 # Confirm all directories in file path exist #
-                file_path.mkdir(parents=True, exist_ok=True)
+                file_path.parents[0].mkdir(parents=True, exist_ok=True)
                 # Write data to path saved in db #
                 file_handler(config_obj, file_path, 'wb', operation='write', data=text)
             # User specified file path #
             else:
-                # Validate and format extraction file path #
-                file_path = extract_parse(config_obj, row, path)
-
+                # Format file path based on used input #
+                file_path = Path(path) / folder / row[0]
                 # Confirm all directories in file path exist #
-                file_path.mkdir(parents=True, exist_ok=True)
+                file_path.parents[0].mkdir(parents=True, exist_ok=True)
                 # Write data to path specified by user input #
                 file_handler(config_obj, file_path, 'wb', operation='write', data=text)
 
             print(f'File: {row[0]}')
 
+            # If the user wants to delete data after extraction #
             if is_deleted == 'y':
                 # Delete item from storage database #
                 query = db_delete(config_obj.db_tables[1])
@@ -108,19 +111,19 @@ def db_store(config_obj: object):
     :param config_obj:  The program configuration instance.
     :return:  Nothing
     """
-    encryptor = None
-
     # Prompt user for needed inputs to perform extraction #
     path, is_crypt, is_deleted = store_input(config_obj)
 
     # If the data to be stored is in plain text #
     if is_crypt == 'plain':
         # Retrieve nonce from Keys db, then decode and decrypt #
-        key, nonce = cha_decrypt(config_obj)
-        # Initialize the ChaCha20 algo object #
-        algo = cha_init(key, nonce)
-        # Set the algo object to encryptor #
-        encryptor = algo.encryptor()
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     print(f'\nStoring path in database:\n{21 * "*"}\n')
 
@@ -155,7 +158,7 @@ def db_store(config_obj: object):
             # If in plain text, encrypt it #
             if is_crypt == 'plain':
                 # Encrypt the plain text data #
-                crypt = encryptor.update(file_data)
+                crypt = symm_encrypt(key, nonce, file_data)
                 # Encrypted data is base64 encoded for storage #
                 data = b64encode(crypt).decode()
             else:
@@ -182,7 +185,7 @@ def db_store(config_obj: object):
     if is_deleted == 'y':
         # Recursively delete leftover empty folders
         for dir_path, dir_names, _ in os.walk(path):
-            rmtree(Path(dir_path) / dir_names)
+            [rmtree(Path(dir_path) / dir_name) for dir_name in dir_names]
 
     print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
 
@@ -205,24 +208,12 @@ def decryption(config_obj: object):
         user_key = f'{user}_decrypt'
         user_nonce = f'{user}_nonce'
 
-    # Get the decrypted database key #
-    db_key = get_database_comp(config_obj)
-    # Attempt to Retrieve the upload key and nonce from Keys db #
-    decrypt_call, nonce_call = fetch_upload_comps(config_obj, user_key, user_nonce)
-
-    # If decrypt key doesn't exist in db #
-    if not decrypt_call or not nonce_call:
+    # Retrieve nonce from Keys db, then decode and decrypt #
+    decrypt_key, decrypt_nonce = symm_retrieve(config_obj, user_key, user_nonce)
+    # If the key retrieval failed #
+    if not decrypt_key or not decrypt_nonce:
         return print_err('Database missing decrypt component .. exit and'
                          ' restart program to fix issue', 2)
-
-    # Decrypt key & nonce #
-    decrypt_key = decrypt_db_data(db_key, decrypt_call[1])
-    decrypt_nonce = decrypt_db_data(db_key, nonce_call[1])
-
-    # Initialize the ChaCha20 algo object #
-    algo = cha_init(decrypt_key, decrypt_nonce)
-    # Set the object as decryptor #
-    decryptor = algo.decryptor()
 
     print(f'\nDecrypting files in path:\n{26 * "*"}\n')
 
@@ -237,7 +228,7 @@ def decryption(config_obj: object):
             # Read the encrypted file data #
             file_data = file_handler(config_obj, curr_file, 'rb', operation='read')
             # Decrypt the encrypted file data #
-            plain = decryptor.update(file_data)
+            plain = symm_decrypt(decrypt_key, decrypt_nonce, file_data)
             # Delete the encrypted file data #
             secure_delete(curr_file)
             # Re-write the plain text data to file #
@@ -372,7 +363,7 @@ def import_key(config_obj: object):
     # Load user AESCCM decrypt components #
     key = file_handler(config_obj, aesccm_path, 'rb', operation='read')
     nonce = file_handler(config_obj, nonce_path, 'rb', operation='read')
-    aesccm = AESCCM(key, tag_length=16)
+    aesgcm = AESGCM(key)
 
     # Read users decrypt & nonce key #
     crypt_key = file_handler(config_obj, key_path, 'rb', operation='read')
@@ -380,8 +371,8 @@ def import_key(config_obj: object):
 
     # Unlock users decrypt & nonce key #
     try:
-        user_key = aesccm.decrypt(nonce, crypt_key, user_pass.encode())
-        user_nonce = aesccm.decrypt(nonce, crypt_nonce, user_pass.encode())
+        user_key = aesgcm.decrypt(nonce, crypt_key, user_pass.encode())
+        user_nonce = aesgcm.decrypt(nonce, crypt_nonce, user_pass.encode())
 
     # If the authentication tag is invalid #
     except InvalidTag:
@@ -484,16 +475,16 @@ def share_keyset(config_obj: object):
     receivers = (recv_email, recv_email2, f'{recv_phone}@{provider}')
 
     # Retrieve and decrypt ChaCha20 components #
-    share_key, share_nonce = cha_decrypt(config_obj)
+    share_key, share_nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
 
-    # Create AESCCM password authenticated key #
-    auth_key = AESCCM.generate_key(bit_length=256)
-    aesccm = AESCCM(auth_key, tag_length=16)
-    auth_nonce = os.urandom(13)
+    # Create AESGCM password authenticated key #
+    auth_key = AESGCM.generate_key(bit_length=256)
+    aesgcm = AESGCM(auth_key)
+    auth_nonce = os.urandom(96 // 8)
 
     # Encrypt components with temporary password-based encryption #
-    key_crypt = aesccm.encrypt(auth_nonce, share_key, key_pass.encode())
-    key_nonce = aesccm.encrypt(auth_nonce, share_nonce, key_pass.encode())
+    key_crypt = aesgcm.encrypt(auth_nonce, share_key, key_pass.encode())
+    key_nonce = aesgcm.encrypt(auth_nonce, share_nonce, key_pass.encode())
 
     # Grab username from email with regex & format it to file names #
     user = re.search(r'\w{2,30}(?=@)', send_email)
@@ -538,17 +529,18 @@ def upload(config_obj: object):
     :param config_obj:  The program configuration object.
     :return:  Prints successful operation or error message.
     """
-    encryptor = None
     # Prompt user for needed inputs to perform cloud drive upload #
     local_path, prompt, prompt2, folder, prompt3 = upload_input(config_obj)
 
     if prompt == 'plain':
-        # Retrieve and decrypt ChaCha20 components #
-        upload_key, upload_nonce = cha_decrypt(config_obj)
-        # Initialize ChaCha20 encryption algo #
-        algo = cha_init(upload_key, upload_nonce)
-        # Set algo object to encryptor #
-        encryptor = algo.encryptor()
+        # Retrieve nonce from Keys db, then decode and decrypt #
+        key, nonce = symm_retrieve(config_obj, 'upload_key', 'upload_nonce')
+        # If the key retrieval failed #
+        if not key or not nonce:
+            return print_err('Database missing decrypt component .. exit and'
+                             ' restart program to fix issue', 2)
+    else:
+        key = nonce = None
 
     # If local_path was passed in as None
     # due to the user selecting storage #
@@ -646,7 +638,7 @@ def upload(config_obj: object):
 
                     # If in plain text, encrypt it #
                     if prompt == 'plain':
-                        crypt = encryptor.update(file_data)
+                        crypt = symm_encrypt(key, nonce, file_data)
                     else:
                         crypt = file_data
 

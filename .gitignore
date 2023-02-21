@@ -9,7 +9,7 @@ Modules/__pycache__/
 venv/
 
 # Files to ignore
-cryptLog.log
+crypt_log.log
 credentials.json
 settings.yaml
 To-Do.txt

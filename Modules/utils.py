@@ -22,51 +22,12 @@ from argon2 import PasswordHasher
 from exif import Image
 from cryptography.exceptions import InvalidTag
 from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.ciphers import algorithms, Cipher
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 # If OS is Windows #
 if os.name == 'nt':
     from winshell import undelete, x_not_found_in_recycle_bin
 # Custom Modules #
 import Modules.db_handlers as db_handlers
-
-
-def cha_init(key: bytes, nonce: bytes) -> Cipher:
-    """
-    Initializes the ChaCh20 algorithm object.
-
-    :param key:  ChaCha20 key.
-    :param nonce:  ChaCha20 nonce.
-    :return:  Initialized ChaCha20 cipher instance.
-    """
-    # Initialize ChaCha20 encryption algo #
-    algo = algorithms.ChaCha20(key, nonce)
-    # Return the initialized ChaCha20 cipher object #
-    return Cipher(algo, mode=None)
-
-
-def cha_decrypt(conf_obj: object):
-    """
-    Retrieve ChaCha components from Keys db, decoding and decrypting them.
-
-    :param conf_obj:  The program configuration instance.
-    :return:  The decrypted ChaCha20 key and nonce or prints message on error.
-    """
-    # Get the decrypted database key #
-    db_key = get_database_comp(conf_obj)
-    # Attempt to Retrieve the upload key and nonce from Keys db #
-    key_call, nonce_call = fetch_upload_comps(conf_obj, 'upload_key', 'upload_nonce')
-
-    # If decrypt key doesn't exist in db #
-    if not key_call or not nonce_call:
-        return print_err('Database missing decrypt component ..'
-                        ' exit and restart program to fix issue', 2)
-
-    # Decrypt key & nonce #
-    decrypt_key = decrypt_db_data(db_key, key_call[1])
-    decrypt_nonce = decrypt_db_data(db_key, nonce_call[1])
-
-    return decrypt_key, decrypt_nonce
 
 
 def component_handler(config_obj: object, user_input: str) -> object:
@@ -904,6 +865,79 @@ def secure_delete(path: Path, passes=10):
 
     # Delete the file #
     path.unlink()
+
+
+def symm_decrypt(symm_key: bytes, symm_nonce: bytes, data: bytes) -> bytes:
+    """
+    Decrypt passed in data with symmetrical key and nonce params.
+
+    :param symm_key:  The symmetrical key used for decryption
+    :param symm_nonce:  The symmetrical nonce used for decryption.
+    :param data:  The data to be decrypted.
+    :return:  The decrypted plain text data.
+    """
+    # Initialize AESGCM algo object #
+    aesgcm = AESGCM(symm_key)
+
+    try:
+        # Decrypt the passed in data #
+        plain = aesgcm.decrypt(symm_nonce, data, None)
+
+    # If authentication tag is invalid #
+    except (InvalidTag, ValueError) as crypt_err:
+        print_err(f'Error during symmetrical decryption: {crypt_err}', 2)
+        sys.exit(8)
+
+    return plain
+
+
+def symm_encrypt(symm_key: bytes, symm_nonce: bytes, data: bytes) -> bytes:
+    """
+    Encrypt passed in data with symmetrical key and nonce params.
+
+    :param symm_key:  The symmetrical key used for encryption
+    :param symm_nonce:  The symmetrical nonce used for encryption.
+    :param data:  The data to be encrypted.
+    :return:  The encrypted plain text data.
+    """
+    # Initialize AESGCM algo object #
+    aesgcm = AESGCM(symm_key)
+
+    try:
+        # Encrypt the passed in data #
+        crypt = aesgcm.encrypt(symm_nonce, data, None)
+
+    # If a data chunk too large was passed in #
+    except OverflowError as buff_err:
+        print_err(f'Too large of a chunk of data attempted encryption: {buff_err}', 2)
+        sys.exit(10)
+
+    return crypt
+
+
+def symm_retrieve(conf_obj: object, key_name: str, nonce_name: str) -> tuple:
+    """
+    Retrieve symmetrical cryptographic components from Keys db, decoding and decrypting them.
+
+    :param conf_obj:  The program configuration instance.
+    :param key_name:  The name of the key to be retrieved from database.
+    :param nonce_name:  The name of the nonce to be retrieved from database.
+    :return:  The decrypted ChaCha20 key and nonce or prints message on error.
+    """
+    # Get the decrypted database key #
+    db_key = get_database_comp(conf_obj)
+    # Attempt to Retrieve the upload key and nonce from Keys db #
+    key_call, nonce_call = fetch_upload_comps(conf_obj, key_name, nonce_name)
+
+    # If decrypt key doesn't exist in db #
+    if not key_call or not nonce_call:
+        return False
+
+    # Decrypt key & nonce #
+    decrypt_key = decrypt_db_data(db_key, key_call[1])
+    decrypt_nonce = decrypt_db_data(db_key, nonce_call[1])
+
+    return decrypt_key, decrypt_nonce
 
 
 def sys_lock():

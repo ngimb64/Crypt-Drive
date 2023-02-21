@@ -279,10 +279,9 @@ class ProgramConfig:
             self.re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
 
         # Compile program regex #
-        self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,40}')
         self.re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
         self.re_user = re.compile(r'^[a-zA-Z\d._]{1,30}')
-        self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,30}')
+        self.re_pass = re.compile(r'^[a-zA-Z\d_!+$@&(]{12,40}')
         self.re_phone = re.compile(r'^\d{10}')
         self.re_dir = re.compile(r'^[a-zA-Z\d._]{1,30}')
         self.re_no_ext = re.compile(r'(?=[a-zA-Z\d])[^\\]{1,30}(?=\.)')
@@ -350,7 +349,7 @@ class ProgramConfig:
 
         return plain
 
-    def decrypt_db_key(self, secret: str) -> bytes:
+    def decrypt_db_key(self, secret: bytes) -> bytes:
         """
         Decrypt the database key with aesgcm authenticated.
 
@@ -408,6 +407,7 @@ if __name__ == '__main__':
         # If keyboard interrupt is detected #
         except KeyboardInterrupt:
             print('\n\n* [EXIT] Ctrl + c detected .. exiting *')
+            break
 
         # If error occurs acquiring semaphore lock #
         except ValueError as sema_err:
