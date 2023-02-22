@@ -7,20 +7,21 @@
 &#9745;&#65039; Pylint verified 9.91/10
 
 ## Prereqs
-Made for Windows and Linux, written in Python 3.9
+Made for Windows and Linux, written in Python 3.9 and updated to 3.10.6
 
 ## Purpose
-Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a
-password protected database, while giving the user to share the unlock key & nonce via a temporary 
-password protected encryption through emails & a password provided via sms text message. After 
-unlock components are received the user downloads the shared encrypted data from drive and uses the 
-program to import the key then decrypt it. Crypt Drive also is able to store and rebuild recursive 
-file systems through encrypted databases.
+Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password protected database.
+Allows the user to share the unlock key & nonce via a temporary password protected encryption through emails & a password provided via sms text message.
+After unlock components are received the user downloads the shared encrypted data from drive and uses the program to import the key then decrypt it.
+Crypt Drive also is able to store and rebuild recursive file systems via database column encryption.
 
-It also features a startup script that check the programs components such as keys and databases. If 
-components are missing, the program checks the recycling bin and file system in an attempt to 
-recover it. If the recovery fails, new components are created and the data must be re-uploaded with 
-the new key set to be able to decrypt it.
+## Features
+- Password protected access verified by encrypted hashed password stored in system keyring
+- Automated Google Drive recursive uploads featuring strong AES Galios Counter Mode encryption
+- Secure cryptographic key sharing via multiple email accounts and sms one-time password
+- Self-encrypting logging system tied to authentication
+- Store/extract recursive encrypted file systems to and from local databases
+- Designed to manage program components, recover missing components, and recreate if not recoverable
 
 ## Installation
 - Run the setup.py script to build a virtual environment and install all external packages in the created venv.
@@ -43,9 +44,9 @@ the new key set to be able to decrypt it.
 - The API credentials are for Drive authentication and the AppSecret.txt is for Gmail authentication.
 
 ### Encryption scheme:
-- Database Unlock & Sharing - Authenticated AES 256 counter mode CBC with 104 bit nonce & CBC-MAC (CCM) integrity check
+- Database unlock & key sharing - Authenticated AES 256 bit Galios Counter Mode with 96 bit nonce
 - Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
-- Data encrypt / decrypt - ChaCha20 256 with 128 bit nonce
+- Upload data encrypt / decrypt - AES 256 bit Galios Counter Mode with 96 bit nonce
 
 ## How to use
 - Enter password to create key/database set, if they already exist the db encryption key is unlocked
