@@ -615,7 +615,7 @@ def make_keys(config: object, password: bytes) -> object:
     upload_key = b64encode(upload_key)
     upload_nonce = b64encode(upload_nonce)
 
-    # AESCCM password authenticated key #
+    # AESGCM password authenticated key #
     key = AESGCM.generate_key(bit_length=256)
     nonce = os.urandom(96 // 8)
     aesgcm = AESGCM(key)
@@ -629,15 +629,15 @@ def make_keys(config: object, password: bytes) -> object:
     config.secret_key = secret_key
     config.password = crypt_hash
 
-    # Send encrypted ChaCha20 key to key's database #
+    # Send encrypted upload data AESGCM key to key's database #
     query = db_handlers.key_insert(config.db_tables[0])
     db_handlers.query_handler(config, query, 'upload_key', upload_key.decode('utf-8'))
 
-    # Send encrypted ChaCha20 nonce to keys database #
+    # Send encrypted upload data AESGCM nonce to keys database #
     query = db_handlers.key_insert(config.db_tables[0])
     db_handlers.query_handler(config, query, 'upload_nonce', upload_nonce.decode('utf-8'))
 
-    # Write AESCCM key and nonce to files #
+    # Write AESGCM key and nonce to files #
     file_handler(config, config.files[0], 'wb', operation='write', data=key)
     file_handler(config, config.files[1], 'wb', operation='write', data=nonce)
 
