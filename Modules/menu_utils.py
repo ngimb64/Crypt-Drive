@@ -44,11 +44,11 @@ def extract_input(conf_obj: object) -> tuple:
     while True:
         dir_name = input('Enter folder name to be recursively exported from the database: ')
         exp_path = input('\nEnter [A-Z]:\\Windows\\path or /Linux/path to export to'
-                     ' or hit enter to export to saved path in database:\n')
+                         ' or hit enter to export to saved path in database:\n')
         crypt_check = input('\nShould the data be extracted in encrypted or plain text'
-                       ' (encrypted or plain)? ')
+                            ' (encrypted or plain)? ')
         delete_check = input('\nShould the data extracted be deleted from the data base after'
-                        ' operation (y or n)? ')
+                             ' operation (y or n)? ')
 
         # If path regex fails and enter was not input or folder regex fails #
         if not re.search(conf_obj.re_dir, dir_name) \

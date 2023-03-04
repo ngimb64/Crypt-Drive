@@ -6,7 +6,13 @@ import Modules.utils as utils
 
 
 def db_create(db_tuple: tuple) -> str:
-    return f''' 
+    """
+    Create the program database with keys and data storage tables.
+
+    :param db_tuple:  Database table name tuple.
+    :return:  The parsed database creation query.
+    """
+    return f'''
             CREATE TABLE IF NOT EXISTS {db_tuple[0]} (
                 name VARCHAR(20) PRIMARY KEY NOT NULL,
                 data TINYTEXT NOT NULL
@@ -140,26 +146,25 @@ def query_handler(conf: object, query, *args, exec_script=None, fetch=None):
                 # Execute SQL script #
                 db_call = conf.db_conn.executescript(query)
 
+            # If the fetch flag is at default "None" #
+            if not fetch:
+                return None
+
             # If the fetch flag is set to "one" #
             if fetch == 'one':
                 # Return fetched row #
                 return db_call.fetchone()
 
             # If the fetch flag is set to "all" #
-            elif fetch == 'all':
+            if fetch == 'all':
                 # Return all fetched rows #
                 return db_call.fetchall()
 
-            # If the fetch flag is at default "None" #
-            elif not fetch:
-                return None
-
             # If the fetch flag has been set to unknown value #
-            else:
-                utils.print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
-                utils.logger(conf, f'Fetch flag is set to unexpected value: {fetch}',
-                             operation='write', handler='error')
-                sys.exit(4)
+            utils.print_err(f'Fetch flag is set to unexpected value: {fetch}', None)
+            utils.logger(conf, f'Fetch flag is set to unexpected value: {fetch}',
+                         operation='write', handler='error')
+            sys.exit(4)
 
     # If error occurs during database operation #
     except sqlite3.Error as db_err:

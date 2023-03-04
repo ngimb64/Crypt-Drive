@@ -187,7 +187,8 @@ def db_store(config_obj: object):
         for dir_path, dir_names, _ in os.walk(path):
             [rmtree(Path(dir_path) / dir_name) for dir_name in dir_names]
 
-    print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into storage database')
+    return print(f'\n\n[SUCCESS] Files from {path} have been encrypted & inserted into '
+                 'storage database')
 
 
 def decryption(config_obj: object):
@@ -357,8 +358,8 @@ def import_key(config_obj: object):
     if not key_path.exists() or not key_nonce_path.exists() \
     or not aesccm_path.exists() or not nonce_path.exists():
         return print_err('A component needed for importing key is missing, 4 files are required in'
-                        ' the Import directory:\n[user]_decrypt.txt, [user]_key_nonce.txt,'
-                        ' [user]_aesccm.txt, [user]_nonce.txt', 2.5)
+                         ' the Import directory:\n[user]_decrypt.txt, [user]_key_nonce.txt,'
+                         ' [user]_aesccm.txt, [user]_nonce.txt', 2.5)
 
     # Load user AESCCM decrypt components #
     key = file_handler(config_obj, aesccm_path, 'rb', operation='read')

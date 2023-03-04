@@ -82,7 +82,7 @@ def data_copy(source: Path, dest: Path):
         shutil.copy(source, dest)
 
     # If file already exists #
-    except (shutil.Error, OSError):
+    except shutil.Error:
         pass
 
     # Delete source file #
@@ -266,7 +266,7 @@ def error_query(err_path: str, err_mode: str, err_obj: object):
     # If the file does not have read/write access #
     elif err_obj.errno == errno.EPERM:
         print_err(f'{err_path} does not have permissions for {err_mode} file mode,'
-                 ' if file exists confirm it is closed', 2)
+                  ' if file exists confirm it is closed', 2)
 
     # File IO error occurred #
     elif err_obj.errno == errno.EIO:
@@ -335,7 +335,7 @@ def file_handler(conf: object, filename: Path, mode: str, operation=None,
                              'attempted', operation='write', handler='error')
 
     # If error occurs during file operation #
-    except (IOError, FileNotFoundError, OSError) as err:
+    except OSError as err:
         # Look up file error #
         error_query(filename, mode, err)
         # If password is set #
@@ -686,7 +686,7 @@ def meta_strip(file_path: Path) -> bool:
             return False
 
         # If file IO error occurs #
-        except (AttributeError, IOError, OSError):
+        except (AttributeError, OSError):
             # If 3 failed attempts #
             if count == 3:
                 return False
@@ -859,8 +859,8 @@ def secure_delete(path: Path, passes=10):
                 # Write random data #
                 file.write(os.urandom(length))
 
-    # If file error occurs #
-    except (IOError, OSError) as err:
+    # If error occurs during file operation #
+    except OSError as err:
         print_err(f'Error overwriting file for secure delete: {err}', 2)
 
     # Delete the file #
@@ -981,6 +981,7 @@ def write_log(conf: object, db_key: bytes):
         with conf.log_name.open('w', encoding='utf-8') as file:
             file.write(crypt)
 
-    except (IOError, OSError) as err:
+    # If error occurs during file operation #
+    except OSError as err:
         print_err(f'Error occurred writing {log_msg} to Logger:\n{err}', 2)
         sys.exit(10)
