@@ -9,6 +9,7 @@ import time
 from getpass import getpass
 from io import StringIO
 from pathlib import Path
+from shlex import quote
 from shutil import rmtree
 from threading import BoundedSemaphore
 # External Modules #
@@ -271,12 +272,15 @@ class ProgramConfig:
     def __init__(self):
         # If OS is Windows #
         if os.name == 'nt':
-            self.clear_cmd = 'cls'
+            cmd = 'cls'
             self.re_path = re.compile(r'^[A-Z]:(?:\\[a-zA-Z\d_\"\' .,\-]{1,260})+')
         # If OS is Linux #
         else:
-            self.clear_cmd = 'clear'
+            cmd = 'clear'
             self.re_path = re.compile(r'^(?:/[a-zA-Z\d_\"\' .,\-]{1,260})+')
+
+        # Shell-escape clear command syntax #
+        self.clear_cmd = quote(cmd)
 
         # Compile program regex #
         self.re_email = re.compile(r'[a-zA-Z\d._]{2,30}@[a-zA-Z\d_.]{2,15}\.[a-z]{2,4}$')
@@ -343,7 +347,7 @@ class ProgramConfig:
             plain = Fernet(self.secret_key).decrypt(self.password)
 
         # If invalid token or encoding error #
-        except (binascii.Error, InvalidToken, TypeError, ValueError) as crypt_err:
+        except (binascii.Error, InvalidToken, TypeError) as crypt_err:
             print_err(f'Error occurred during fernet secret decryption: {crypt_err}', 2)
             sys.exit(5)
 

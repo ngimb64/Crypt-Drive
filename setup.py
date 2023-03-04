@@ -32,7 +32,7 @@ def system_cmd(cmd: list, exec_time):
     """
     try:
         # Set up child process in context manager, piping output & errors to return variables #
-        with Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, shell=True) as command:
+        with Popen(cmd, stdout=sys.stdout, stderr=sys.stderr) as command:
             # Execute process for passed in timeout (None=blocking) #
             command.communicate(timeout=exec_time)
 
