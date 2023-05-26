@@ -1,13 +1,11 @@
-# Crypt Drive
+<div align="center" style="font-family: monospace">
+<h1>Crypt-Drive</h1>
+&#9745;&#65039; Bandit verified &nbsp;|&nbsp; &#9745;&#65039; Synk verified &nbsp;|&nbsp; &#9745;&#65039; Pylint verified 9.91/10
+<br><br>
+
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/CryptDrive.gif?raw=true)
 ![alt text](https://github.com/ngimb64/Crypt-Drive/blob/main/Crypt_Drive.png?raw=true)
-
-&#9745;&#65039; Bandit verified<br>
-&#9745;&#65039; Synk verified<br>
-&#9745;&#65039; Pylint verified 9.91/10
-
-## Prereqs
-Made for Windows and Linux, written in Python 3.9 and updated to 3.10.6
+</div>
 
 ## Purpose
 Crypt Drive is designed to manage encrypted uploads to cloud storage (Google Drive), store keys in a password protected database.
@@ -22,6 +20,20 @@ Crypt Drive also is able to store and rebuild recursive file systems via databas
 - Self-encrypting logging system tied to authentication
 - Store/extract recursive encrypted file systems to and from local databases
 - Designed to manage program components, recover missing components, and recreate if not recoverable
+
+### Encryption scheme:
+- Database unlock & key sharing - Authenticated AES 256 bit Galios Counter Mode with 96 bit nonce
+- Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
+- Upload data encrypt / decrypt - AES 256 bit Galios Counter Mode with 96 bit nonce
+
+### License
+The program is licensed under [GNU Public License v3.0](LICENSE.md)
+
+### Contributions or Issues
+[CONTRIBUTING](CONTRIBUTING.md)
+
+## Prereqs
+Made for Windows and Linux, written in Python 3.9 and updated to 3.10.6
 
 ## Installation
 - Run the setup.py script to build a virtual environment and install all external packages in the created venv.
@@ -42,11 +54,6 @@ Crypt Drive also is able to store and rebuild recursive file systems via databas
   google account. After that is set, an Application Password can be generated in Google account 
   settings and need to be saved in the base directory in CryptDrive as a file named AppSecret.txt.
 - The API credentials are for Drive authentication and the AppSecret.txt is for Gmail authentication.
-
-### Encryption scheme:
-- Database unlock & key sharing - Authenticated AES 256 bit Galios Counter Mode with 96 bit nonce
-- Local database - Fernet AES 128 CBC mode with PKCS7 padding & HMAC integrity check
-- Upload data encrypt / decrypt - AES 256 bit Galios Counter Mode with 96 bit nonce
 
 ## How to use
 - Enter password to create key/database set, if they already exist the db encryption key is unlocked
@@ -228,16 +235,16 @@ Crypt Drive also is able to store and rebuild recursive file systems via databas
 -- crypt_drive.py --
 > 0 - Successful operation <br>
 > 1 - Error occurred during program startup <br>
-> 3 - Error occurred decrypting keyring in startup (password_input)<br>
+> 3 - Error occurred decrypting keyring in startup (password_input) <br>
 
 -- auth_crypt.py --
-> 5 - Error decrypting the cipher hashed secret (get_plain_secret)<br>
-> 6 - Error decrypting the database Fernet key (decrypt_db_data)<br>
+> 5 - Error decrypting the cipher hashed secret (get_plain_secret) <br>
+> 6 - Error decrypting the database Fernet key (decrypt_db_data) <br>
 
 -- utils.py --
-> 2 - User has exhausted maximum password attempts (sys_lock)<br>
-> 4 - Error decryption local database key (db_check)<br>
-> 7 - Error decrypting database data (decrypt_db_data)<br>
-> 8 - Error encrypting database data (encrypt_db_data)<br>
-> 9 - Maximum (3) consecutive IO errors occurred (file_handler)<br>
-> 10 - Error occurred writing to encrypted log file (write_log)<br>
+> 2 - User has exhausted maximum password attempts (sys_lock) <br>
+> 4 - Error decryption local database key (db_check) <br>
+> 7 - Error decrypting database data (decrypt_db_data) <br>
+> 8 - Error encrypting database data (encrypt_db_data) <br>
+> 9 - Maximum (3) consecutive IO errors occurred (file_handler) <br>
+> 10 - Error occurred writing to encrypted log file (write_log) <br>
